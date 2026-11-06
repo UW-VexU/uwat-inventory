@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  boardLines,
+  checkBag,
   connectionsOf,
   describeRole,
   formatRefs,
@@ -32,6 +34,11 @@ describe('parseRefList', () => {
     expect(parseRefList('R1-R4')).toEqual(['R1', 'R2', 'R3', 'R4']);
     expect(parseRefList('r1 r2')).toEqual(['R1', 'R2']);
     expect(parseRefList('SW1')).toEqual(['SW1']);
+  });
+
+  it('reads ranges written with "to", as the Stella Nova upload file does', () => {
+    expect(parseRefList('R3, R5, R6, R9 to R14')).toEqual(['R3', 'R5', 'R6', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14']);
+    expect(parseRefList('R1 – R3')).toEqual(['R1', 'R2', 'R3']);
   });
 
   it('turns down anything that is really a project name', () => {
@@ -87,6 +94,12 @@ describe('describeRole', () => {
     [c3, 'Between BST and SW'],
   ])('%#', (placement, role) => {
     expect(describeRole(placement, all)).toBe(role);
+  });
+
+  it('leaves spots that stay empty out of its reasoning', () => {
+    const r1 = spot('R1', 'VIN', 'Net-(U2-EN)');
+    const r2 = { ...spot('R2', 'Net-(U2-EN)', 'GND'), dnp: true };
+    expect(describeRole(r1, [r1, r2])).toBe('Pull-up on U2 EN');
   });
 
   it('stays quiet about parts it cannot judge', () => {
@@ -146,8 +159,8 @@ describe('parseBom', () => {
     expect(parseBom(csv)).toEqual({
       problems: [],
       rows: [
-        { line: 2, refs: ['C2', 'C3', 'C16', 'C32'], partNumber: '1276-3387-1-ND', mfrPartNumber: 'CL32B106KBJNNNE', value: null },
-        { line: 3, refs: ['D4'], partNumber: 'SMBJ16ALFCT-ND', mfrPartNumber: 'SMBJ16A', value: null },
+        { line: 2, refs: ['C2', 'C3', 'C16', 'C32'], emptyRefs: [], partNumber: '1276-3387-1-ND', mfrPartNumber: 'CL32B106KBJNNNE', value: null, description: null },
+        { line: 3, refs: ['D4'], emptyRefs: [], partNumber: 'SMBJ16ALFCT-ND', mfrPartNumber: 'SMBJ16A', value: null, description: null },
       ],
     });
   });
@@ -155,6 +168,36 @@ describe('parseBom', () => {
   it('reads a KiCad BOM', () => {
     const { rows } = parseBom('Reference,Value,Footprint,MPN\n"R1,R2",10k,R_0603,RC0603FR-0710KL');
     expect(rows[0]).toMatchObject({ refs: ['R1', 'R2'], value: '10k', mfrPartNumber: 'RC0603FR-0710KL' });
+  });
+
+  // These lines are copied from the real Stella Nova BOM.
+  const REAL_BOM = `Item,Qty per board,Designators,Do not populate,Value,Description,Manufacturer,MPN,DigiKey Canada PN
+21,9,R3 R5 R6 R9 R10 R11 R12 R13 R14,,10k,10 k 1% 0603,Yageo,RC0603FR-1310KL,13-RC0603FR-1310KLCT-ND
+20,0,,R2,37.4k,37.4 k 1% 0603,Yageo,RC0603FR-0737K4L,311-37.4KHRCT-ND
+,,,,,Parts total per board,,,`;
+
+  it('reads the Stella Nova BOM', () => {
+    const { rows, problems } = parseBom(REAL_BOM);
+    expect(problems).toEqual([]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      refs: ['R3', 'R5', 'R6', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14'],
+      emptyRefs: [],
+      value: '10k',
+      description: '10 k 1% 0603',
+      partNumber: '13-RC0603FR-1310KLCT-ND',
+      mfrPartNumber: 'RC0603FR-1310KL',
+    });
+  });
+
+  it('keeps do-not-populate spots apart from the ones that get a part', () => {
+    expect(parseBom(REAL_BOM).rows[1]).toMatchObject({ refs: [], emptyRefs: ['R2'], value: '37.4k' });
+  });
+
+  it('reads a KiCad DNP column that just says yes', () => {
+    const { rows } = parseBom('Reference,Value,DNP\n"R1,R2",10k,DNP\nR3,1k,');
+    expect(rows[0]).toMatchObject({ refs: [], emptyRefs: ['R1', 'R2'] });
+    expect(rows[1]).toMatchObject({ refs: ['R3'], emptyRefs: [] });
   });
 
   it('flags rows that have a project name instead of designators', () => {
@@ -260,8 +303,11 @@ describe('findSpots', () => {
   ): PlacementView => ({
     ...spot(ref, first, second),
     packageGuess: '0603',
+    dnp: false,
     value: null,
+    bomDescription: null,
     bomPartNumber: null,
+    bomMfrNumber: null,
     part: null,
     ...extra,
   });
@@ -310,5 +356,103 @@ describe('findSpots', () => {
 
   it('matches nothing when nothing is asked', () => {
     expect(findSpots(all, '   ')).toEqual([]);
+  });
+
+  it('finds spots from BOM values when no stock is linked yet', () => {
+    const bomOnly = view('R20', '+3V3', '/FB', { value: '93.1k', bomDescription: 'FB divider top, 1% 0603' });
+    expect(findSpots([bomOnly], '93.1k')).toEqual(['R20']);
+  });
+
+  it('never offers a spot that stays empty as somewhere a part goes', () => {
+    const empty = view('R2', 'Net-(U2-EN)', 'GND', { dnp: true, value: '37.4k' });
+    expect(findSpots([empty, r1], '37.4k')).toEqual([]);
+    expect(findSpots([empty, r1], 'resistor')).toEqual(['R1']);
+    expect(findSpots([empty, r1], '', 'Resistors')).toEqual(['R1']);
+  });
+
+  it('still finds an empty spot when you ask for it by name', () => {
+    const empty = view('R2', 'Net-(U2-EN)', 'GND', { dnp: true });
+    expect(findSpots([empty, r1], 'r2')).toEqual(['R2']);
+  });
+});
+
+describe('checkBag', () => {
+  const line = (ref: string, extra: Partial<PlacementView>): PlacementView => ({
+    ...spot(ref, 'A', 'B'),
+    dnp: false,
+    value: null,
+    bomDescription: null,
+    bomPartNumber: null,
+    bomMfrNumber: null,
+    part: null,
+    ...extra,
+  });
+  const tenK = { value: '10k', bomDescription: '10 k 1% 0603', bomPartNumber: '13-RC0603FR-1310KLCT-ND', bomMfrNumber: 'RC0603FR-1310KL' };
+  const spots = [
+    line('R10', tenK),
+    line('R3', tenK),
+    line('R2', { dnp: true, value: '37.4k', bomPartNumber: '311-37.4KHRCT-ND', bomMfrNumber: 'RC0603FR-0737K4L' }),
+    line('D2', { value: 'PMEG6020ER', bomPartNumber: '1727-5217-1-ND', bomMfrNumber: 'PMEG6020ER,115' }),
+    line('SW1', { bomMfrNumber: 'PTS810 SJM 250 SMTR LFS' }),
+    line('TP1', {}),
+  ];
+
+  it('says a part belongs, and every spot it goes in', () => {
+    const verdict = checkBag({ partNumber: '13-RC0603FR-1310KLCT-ND', mfrPartNumber: null }, spots);
+    expect(verdict).toMatchObject({ kind: 'fits', line: { refs: ['R3', 'R10'], value: '10k' } });
+  });
+
+  it('matches the same part sold on a different DigiKey number', () => {
+    const verdict = checkBag({ partNumber: '13-RC0603FR-1310KLTR-ND', mfrPartNumber: 'RC0603FR-1310KL' }, spots);
+    expect(verdict.kind).toBe('fits');
+  });
+
+  it("isn't thrown by punctuation in maker numbers", () => {
+    expect(checkBag({ partNumber: null, mfrPartNumber: 'PMEG6020ER115' }, spots).kind).toBe('fits');
+    expect(checkBag({ partNumber: null, mfrPartNumber: 'pts810sjm250smtrlfs' }, spots).kind).toBe('fits');
+  });
+
+  it('warns when a part is for a spot that stays empty', () => {
+    const verdict = checkBag({ partNumber: '311-37.4KHRCT-ND', mfrPartNumber: null }, spots);
+    expect(verdict).toMatchObject({ kind: 'leave-empty', line: { refs: ['R2'] } });
+  });
+
+  it('says so when a part is for another board', () => {
+    expect(checkBag({ partNumber: 'LM323M-ND', mfrPartNumber: 'LM324M' }, spots)).toEqual({ kind: 'not-here' });
+  });
+
+  it("doesn't match a blank label to a blank spot", () => {
+    expect(checkBag({ partNumber: null, mfrPartNumber: null }, spots)).toEqual({ kind: 'not-here' });
+  });
+
+  it('checks a linked part when the spot has no BOM data', () => {
+    const linked = line('R1', {
+      part: { id: 'p', partNumber: 'X-ND', description: 'RES 1K', total: 5, boxes: [] },
+    });
+    expect(checkBag({ partNumber: 'x-nd', mfrPartNumber: null }, [linked]).kind).toBe('fits');
+  });
+});
+
+describe('boardLines', () => {
+  const line = (ref: string, extra: Partial<PlacementView>): PlacementView => ({
+    ...spot(ref, 'A', 'B'),
+    dnp: false,
+    value: null,
+    bomDescription: null,
+    bomPartNumber: null,
+    bomMfrNumber: null,
+    part: null,
+    ...extra,
+  });
+
+  it('lists each part to find once, leaving out empty spots and bare test pads', () => {
+    const lines = boardLines([
+      line('R10', { bomPartNumber: 'A-ND', bomMfrNumber: 'A', value: '10k' }),
+      line('R3', { bomPartNumber: 'A-ND', bomMfrNumber: 'A', value: '10k' }),
+      line('R2', { bomPartNumber: 'B-ND', dnp: true }),
+      line('C1', { bomPartNumber: 'C-ND' }),
+      line('TP1', {}),
+    ]);
+    expect(lines.map((item) => item.refs)).toEqual([['C1'], ['R3', 'R10']]);
   });
 });

@@ -41,6 +41,10 @@ interface Props {
   placements: readonly PlacementView[];
   /** Spots to light up. When there are any, everything else fades back. */
   matched: ReadonlySet<string>;
+  /** Spots whose part has already been found. */
+  done: ReadonlySet<string>;
+  /** The lit spots are a warning, not somewhere a part goes. */
+  warning?: boolean;
   selected: string | null;
   /** The label text for a spot at a given level of zoom. */
   labelLines: (spot: PlacementView, detail: number) => string[];
@@ -66,7 +70,7 @@ function ease(t: number) {
 }
 
 export const BoardCanvas = forwardRef<BoardCanvasHandle, Props>(function BoardCanvas(
-  { boardId, widthMm, heightMm, side, placements, matched, selected, labelLines, summary, onSelect, insets },
+  { boardId, widthMm, heightMm, side, placements, matched, done, warning, selected, labelLines, summary, onSelect, insets },
   handle,
 ) {
   const stage = useRef<HTMLDivElement>(null);
@@ -306,7 +310,7 @@ export const BoardCanvas = forwardRef<BoardCanvasHandle, Props>(function BoardCa
   return (
     <div
       ref={stage}
-      className={`canvas ${dragging ? 'is-dragging' : ''} ${filtering ? 'is-filtering' : ''}`}
+      className={`canvas ${dragging ? 'is-dragging' : ''} ${filtering ? 'is-filtering' : ''} ${warning ? 'is-warning' : ''}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
@@ -331,14 +335,15 @@ export const BoardCanvas = forwardRef<BoardCanvasHandle, Props>(function BoardCa
         {visible.map((spot) => {
           const box = spotBox(spot, widthMm, side);
           const lit = matched.has(spot.ref) || spot.ref === selected;
+          const finished = done.has(spot.ref);
           const firstPad = spot.pads.find((pad) => pad.pin === '1' || pad.pin === 'A1');
           return (
             <g key={spot.ref} data-ref={spot.ref} className={lit ? 'spot spot-lit' : 'spot'}>
-              {lit
+              {lit || finished
                 ? spot.pads.map((pad, index) => (
                     <rect
                       key={`${pad.pin}-${index}`}
-                      className="spot-pad"
+                      className={lit ? 'spot-pad' : 'spot-pad-done'}
                       x={flip(pad.x) - pad.w / 2}
                       y={pad.y - pad.h / 2}
                       width={pad.w}
@@ -366,12 +371,13 @@ export const BoardCanvas = forwardRef<BoardCanvasHandle, Props>(function BoardCa
         ? labels.map((label) => {
             const [title, ...rest] = label.lines;
             const hit = matched.has(label.ref) || label.ref === selected;
+            const empty = visible.find((spot) => spot.ref === label.ref)?.dnp;
             return (
               <button
                 key={label.ref}
                 type="button"
                 data-ref={label.ref}
-                className={`spot-label ${hit ? 'is-hit' : ''} ${label.ref === selected ? 'is-selected' : ''}`}
+                className={`spot-label ${hit ? 'is-hit' : ''} ${label.ref === selected ? 'is-selected' : ''} ${done.has(label.ref) ? 'is-done' : ''} ${empty ? 'is-empty' : ''}`}
                 style={{ transform: `translate(${label.x * scale + camera.x}px, ${label.y * scale + camera.y}px)` }}
                 tabIndex={-1}
               >

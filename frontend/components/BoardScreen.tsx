@@ -1,6 +1,9 @@
 'use client';
 
 import {
+  boardLines,
+  checkBag,
+  classifyScan,
   describeRole,
   findSpots,
   formatRefs,
@@ -10,6 +13,7 @@ import {
   type BoardDetail,
   type BoardSide,
   type BoardSummary,
+  type BoardUse,
   type ImportProblem,
   type PlacementView,
 } from '@uwat/shared';
@@ -21,6 +25,7 @@ import { plural } from '@/lib/format';
 import { useInventory } from '@/lib/inventory';
 import { BoardCanvas, type BoardCanvasHandle } from './BoardCanvas';
 import { Icon } from './Icon';
+import { CameraScanner, Checklist, ScanBanner, useFoundLines, type ScanResult } from './ScanCheck';
 import { SpotCard } from './SpotCard';
 import { useToast } from './Toast';
 
@@ -28,6 +33,7 @@ type View = BoardSide | 'schematic';
 
 interface BomResult {
   linked: number;
+  leftEmpty: number;
   notInStock: { partNumber: string | null; refs: string[] }[];
   notOnBoard: string[];
   problems: ImportProblem[];
@@ -64,7 +70,11 @@ export function BoardScreen() {
   const [bom, setBom] = useState<BomResult | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [phone, setPhone] = useState(false);
+  const [scan, setScan] = useState<ScanResult | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
   const canvas = useRef<BoardCanvasHandle>(null);
+  const scanInput = useRef<HTMLInputElement>(null);
   const bomInput = useRef<HTMLInputElement>(null);
   const schematicInput = useRef<HTMLInputElement>(null);
   const openedSide = useRef(false);
@@ -89,7 +99,19 @@ export function BoardScreen() {
   }, []);
 
   const placements = useMemo(() => detail?.placements ?? [], [detail]);
-  const matches = useMemo(() => findSpots(placements, query, kind), [placements, query, kind]);
+  const scanRefs = scan && scan.verdict.kind !== 'not-here' ? scan.verdict.line.refs : null;
+  const typedMatches = useMemo(
+    () => (query.startsWith('[)>') ? [] : findSpots(placements, query, kind)),
+    [placements, query, kind],
+  );
+  const matches = scanRefs ?? typedMatches;
+  const lines = useMemo(() => boardLines(placements), [placements]);
+  const { found, markFound, reset: resetFound } = useFoundLines(id);
+  const doneRefs = useMemo(
+    () => new Set(lines.filter((line) => found.has(line.key)).flatMap((line) => line.refs)),
+    [found, lines],
+  );
+  const foundCount = lines.filter((line) => found.has(line.key)).length;
   const spotsBySide = useMemo(() => new Map(placements.map((spot) => [spot.ref, spot.side])), [placements]);
 
   const side: BoardSide = view === 'bottom' ? 'bottom' : 'top';
@@ -100,7 +122,7 @@ export function BoardScreen() {
 
   const kinds = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const placement of placements) {
+    for (const placement of placements.filter((spot) => !spot.dnp)) {
       const name = refKindName(refKind(placement.ref));
       counts.set(name, (counts.get(name) ?? 0) + 1);
     }
@@ -119,7 +141,60 @@ export function BoardScreen() {
     setQuery(text);
     setFindInUrl(text);
     setSelected(null);
+    setScan(null);
   };
+
+  /** Judges a scanned or typed code against this board. False means it wasn't a part code at all. */
+  const runScan = useCallback(
+    (raw: string): boolean => {
+      const read = classifyScan(raw);
+      const typed = raw.trim();
+      const bag =
+        read.kind === 'bag'
+          ? read.label
+          : { partNumber: typed, mfrPartNumber: typed, quantity: null, project: null, labelKey: null };
+      const verdict = checkBag(bag, placements);
+      if (read.kind !== 'bag' && verdict.kind === 'not-here' && !/-ND$/i.test(typed)) return false;
+
+      const code = bag.partNumber ?? bag.mfrPartNumber ?? typed;
+      const result: ScanResult = { id: Date.now(), code, quantity: bag.quantity, verdict, otherBoards: null };
+      setScan(result);
+      setQuery('');
+      setKind(null);
+      setSelected(null);
+      setFindInUrl('');
+
+      if (verdict.kind === 'not-here') {
+        const params = new URLSearchParams();
+        if (bag.partNumber) params.set('partNumber', bag.partNumber);
+        if (bag.mfrPartNumber) params.set('mfrPartNumber', bag.mfrPartNumber);
+        api<{ boards: BoardUse[] }>(`/api/boards/which?${params}`)
+          .then(({ boards }) => {
+            setScan((current) => (current?.id === result.id ? { ...current, otherBoards: boards } : current));
+          })
+          .catch(() => undefined);
+      } else {
+        if (verdict.kind === 'fits') markFound(verdict.line.key);
+        const onThisSide = verdict.line.refs.some((ref) => spotsBySide.get(ref) === side);
+        const first = verdict.line.refs[0];
+        if (!onThisSide && first) setView(spotsBySide.get(first) ?? 'top');
+      }
+      return true;
+    },
+    [markFound, placements, side, spotsBySide],
+  );
+
+  // A USB scanner just types, so it has to work wherever the focus happens to be.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      scanInput.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const flyToMatches = () => {
     if (matches.length === 0) return;
@@ -133,6 +208,7 @@ export function BoardScreen() {
   const labelLines = useCallback(
     (placement: PlacementView, level: number): string[] => {
       if (level === 0) return [placement.ref];
+      if (placement.dnp) return [placement.ref, 'Leave empty'];
       const role = describeRole(placement, placements);
       const box = placement.part?.boxes[0];
       const part = placement.part ? `${shortPartName(placement.part.description)}${box ? ` · ${box}` : ''}` : null;
@@ -148,6 +224,7 @@ export function BoardScreen() {
 
   const summary = useCallback(
     (placement: PlacementView): string => {
+      if (placement.dnp) return `Leave empty${placement.value ? ` (${placement.value} not fitted)` : ''}`;
       const role = describeRole(placement, placements);
       if (placement.part) {
         const where = placement.part.boxes[0] ? ` in ${placement.part.boxes.join(', ')}` : '';
@@ -210,6 +287,8 @@ export function BoardScreen() {
           side={side}
           placements={placements}
           matched={matched}
+          done={doneRefs}
+          warning={scan?.verdict.kind === 'leave-empty'}
           selected={selected}
           labelLines={labelLines}
           summary={summary}
@@ -243,19 +322,31 @@ export function BoardScreen() {
             role="search"
             onSubmit={(event) => {
               event.preventDefault();
-              flyToMatches();
+              if (!runScan(query)) flyToMatches();
             }}
           >
             <Icon name="search" />
             <input
+              ref={scanInput}
               type="search"
-              aria-label="What part have you got?"
+              aria-label="Scan a part, or type what you have"
               value={query}
-              placeholder="What have you got? 10k, resistor, 0603, R12"
+              autoFocus
+              placeholder="Scan a part, or type: 10k, resistor, 0603, R12"
               autoComplete="off"
               spellCheck={false}
               onChange={(event) => search(event.target.value)}
             />
+            <button
+              type="button"
+              className="stage-camera"
+              aria-label="Scan with the camera"
+              title="Scan with the camera"
+              aria-pressed={cameraOpen}
+              onClick={() => setCameraOpen((open) => !open)}
+            >
+              <Icon name="camera" />
+            </button>
           </form>
 
           <details className="stage-more">
@@ -294,6 +385,17 @@ export function BoardScreen() {
               </button>
             ))}
           </div>
+          {lines.length > 0 ? (
+            <button
+              type="button"
+              className="stage-progress"
+              aria-expanded={checklistOpen}
+              onClick={() => setChecklistOpen((open) => !open)}
+            >
+              <Icon name="list" size={16} />
+              <strong>{foundCount}</strong> of {lines.length} found
+            </button>
+          ) : null}
           {filtering ? (
             <p className="stage-result" aria-live="polite">
               {matches.length === 0 ? (
@@ -329,6 +431,23 @@ export function BoardScreen() {
             await load();
             await refresh();
           }}
+        />
+      ) : null}
+
+      {scan ? <ScanBanner result={scan} boardName={board.name} onClose={() => setScan(null)} /> : null}
+
+      {cameraOpen ? <CameraScanner onScan={runScan} onClose={() => setCameraOpen(false)} /> : null}
+
+      {checklistOpen ? (
+        <Checklist
+          lines={lines}
+          found={found}
+          onPick={(refs) => {
+            setChecklistOpen(false);
+            search(refs.join(','));
+          }}
+          onReset={resetFound}
+          onClose={() => setChecklistOpen(false)}
         />
       ) : null}
 
@@ -392,22 +511,17 @@ function BomReport({ result, onClose }: { result: BomResult; onClose: () => void
   return (
     <section className="bom-report stage-report" role="status">
       <header>
-        <h2>Linked {plural(result.linked, 'spot')}</h2>
+        <h2>BOM loaded</h2>
         <button type="button" className="icon-button" aria-label="Dismiss" onClick={onClose}>
           <Icon name="close" />
         </button>
       </header>
+      <p>
+        {plural(result.linked, 'spot')} linked to stock.
+        {result.leftEmpty > 0 ? ` ${plural(result.leftEmpty, 'spot')} left empty.` : ''}
+      </p>
       {result.notInStock.length > 0 ? (
-        <>
-          <p>Not in stock yet. These link by themselves once the bags are added:</p>
-          <ul>
-            {result.notInStock.map((row) => (
-              <li key={row.refs.join()}>
-                {row.partNumber ?? 'Unknown part'} · {formatRefs(row.refs)}
-              </li>
-            ))}
-          </ul>
-        </>
+        <p>{plural(result.notInStock.length, 'part')} not in the inventory yet. They link themselves once bags are added.</p>
       ) : null}
       {result.notOnBoard.length > 0 ? (
         <p>In the BOM but not on this board, so check the revision: {formatRefs(result.notOnBoard)}</p>

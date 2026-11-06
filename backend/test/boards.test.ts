@@ -305,6 +305,49 @@ describe('uploading a BOM', () => {
     expect(after.part).toMatchObject({ partNumber: '36-5000-ND', total: 25 });
   });
 
+  it('marks do-not-populate spots, and never links a part to them', async () => {
+    const client = await signIn();
+    const id = await uploaded(client);
+    const { partId } = await addBag(client, 40, { partNumber: 'E-ND', description: 'RES 37.4K' });
+    await client.post(`/api/boards/${id}/link`, { refs: ['R2'], partId });
+
+    const text = `Designators,Do not populate,Value,Description,MPN,DigiKey Canada PN
+R1,,10k,10 k 1% 0603,RC-10K,A-ND
+,R2,37.4k,37.4 k 1% 0603,RC-37K,E-ND`;
+    const { body } = await client.post(`/api/boards/${id}/bom`, { text });
+
+    expect(body.leftEmpty).toBe(1);
+    const { placements } = (await client.get(`/api/boards/${id}`)).body;
+    expect(placements[1]).toMatchObject({ ref: 'R2', dnp: true, part: null, value: '37.4k' });
+    expect(placements[0]).toMatchObject({ ref: 'R1', dnp: false, value: '10k', bomDescription: '10 k 1% 0603', bomMfrNumber: 'RC-10K' });
+  });
+
+  it('replaces the old BOM rather than piling on top of it', async () => {
+    const client = await signIn();
+    const id = await uploaded(client);
+    await client.post(`/api/boards/${id}/bom`, { text: 'Designators,Do not populate,Value\nR1,,10k\n,R2,1k' });
+    await client.post(`/api/boards/${id}/bom`, { text: 'Designators,Do not populate,Value\nR2,,22' });
+
+    const { placements } = (await client.get(`/api/boards/${id}`)).body;
+    expect(placements[0]).toMatchObject({ ref: 'R1', value: null });
+    expect(placements[1]).toMatchObject({ ref: 'R2', value: '22', dnp: false });
+  });
+
+  it('names which board a stray part belongs to', async () => {
+    const client = await signIn();
+    const id = await uploaded(client);
+    await client.post(`/api/boards/${id}/bom`, { text: BOM });
+
+    const byNumber = await client.get('/api/boards/which?partNumber=311-10.0khrct-nd');
+    expect(byNumber.body.boards).toEqual([{ boardId: id, boardName: 'Test Board', revision: 'B', refs: ['R1', 'R2'] }]);
+
+    const byMaker = await client.get('/api/boards/which?partNumber=OTHER-ND&mfrPartNumber=RC0603FR-0710KL');
+    expect(byMaker.body.boards).toHaveLength(1);
+
+    expect((await client.get('/api/boards/which?partNumber=NOPE-ND')).body.boards).toEqual([]);
+    expect((await client.get('/api/boards/which')).body.boards).toEqual([]);
+  });
+
   it('reports rows it could not read', async () => {
     const client = await signIn();
     const id = await uploaded(client);

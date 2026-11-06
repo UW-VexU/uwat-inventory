@@ -5,6 +5,7 @@ import {
   type BoardDetail,
   type BoardPad,
   type BoardSummary,
+  type BoardUse,
   type PlacementGeometry,
   type PlacementView,
 } from '@uwat/shared';
@@ -27,6 +28,7 @@ const uploadBody = z.object({
 });
 
 const bomBody = z.object({ text: z.string().min(1) });
+const whichQuery = z.object({ partNumber: z.string().max(120).optional(), mfrPartNumber: z.string().max(120).optional() });
 const linkBody = z.object({ refs: z.array(z.string().max(16)).min(1).max(500), partId: z.string().nullable() });
 
 const counted = {
@@ -171,8 +173,11 @@ function toPlacementView(row: PlacementRow): PlacementView {
     y: row.y,
     pads: row.pads as unknown as BoardPad[],
     packageGuess: row.packageGuess,
+    dnp: row.dnp,
     value: row.value,
+    bomDescription: row.bomDescription,
     bomPartNumber: row.bomPartNumber,
+    bomMfrNumber: row.bomMfrNumber,
     part: row.part
       ? {
           id: row.part.id,
@@ -216,6 +221,27 @@ export function boardRoutes(): Router {
   router.get('/boards', async (_req, res) => {
     const boards = await prisma.board.findMany({ select: summaryFields, orderBy: { createdAt: 'desc' } });
     res.json({ boards: boards.map(toSummary) });
+  });
+
+  /** Where else a part is used, for telling someone which board a stray part belongs to. */
+  router.get('/boards/which', async (req, res) => {
+    const { partNumber, mfrPartNumber } = parse(whichQuery, req.query);
+    const matches: Prisma.PlacementWhereInput[] = [];
+    if (partNumber) matches.push({ bomPartNumber: { equals: partNumber, mode: 'insensitive' } });
+    if (mfrPartNumber) matches.push({ bomMfrNumber: { equals: mfrPartNumber, mode: 'insensitive' } });
+    if (matches.length === 0) return res.json({ boards: [] });
+
+    const spots = await prisma.placement.findMany({
+      where: { dnp: false, OR: matches },
+      select: { ref: true, board: { select: { id: true, name: true, revision: true } } },
+    });
+    const boards = new Map<string, BoardUse>();
+    for (const { ref, board } of spots) {
+      const use = boards.get(board.id) ?? { boardId: board.id, boardName: board.name, revision: board.revision, refs: [] };
+      use.refs.push(ref);
+      boards.set(board.id, use);
+    }
+    res.json({ boards: [...boards.values()] });
   });
 
   router.get('/boards/:id', async (req, res) => {
@@ -269,26 +295,43 @@ export function boardRoutes(): Router {
     const notOnBoard: string[] = [];
     const notInStock: { partNumber: string | null; refs: string[] }[] = [];
     let linked = 0;
+    let leftEmpty = 0;
 
-    for (const row of rows) {
-      const refs = row.refs.filter((ref) => onBoard.has(ref));
-      notOnBoard.push(...row.refs.filter((ref) => !onBoard.has(ref)));
-      if (refs.length === 0) continue;
+    await prisma.$transaction(async (tx) => {
+      // A new BOM replaces the old one, so nothing stale is left on spots it no longer mentions.
+      await tx.placement.updateMany({
+        where: { boardId },
+        data: { value: null, bomDescription: null, bomPartNumber: null, bomMfrNumber: null, dnp: false },
+      });
 
-      const part = await findPart(row.partNumber, row.mfrPartNumber);
-      await prisma.placement.updateMany({
-        where: { boardId, ref: { in: refs } },
-        data: {
-          partId: part?.id ?? null,
+      for (const row of rows) {
+        const fitted = row.refs.filter((ref) => onBoard.has(ref));
+        const empty = row.emptyRefs.filter((ref) => onBoard.has(ref));
+        notOnBoard.push(...[...row.refs, ...row.emptyRefs].filter((ref) => !onBoard.has(ref)));
+
+        const details = {
           value: row.value,
+          bomDescription: row.description,
           bomPartNumber: row.partNumber,
           bomMfrNumber: row.mfrPartNumber,
-        },
-      });
-      if (part) linked += refs.length;
-      else notInStock.push({ partNumber: row.partNumber ?? row.mfrPartNumber, refs });
-    }
-    res.json({ linked, notInStock, notOnBoard: notOnBoard.sort(compareRefs), problems });
+        };
+        await tx.placement.updateMany({
+          where: { boardId, ref: { in: empty } },
+          data: { ...details, dnp: true, partId: null },
+        });
+        leftEmpty += empty.length;
+
+        if (fitted.length === 0) continue;
+        const part = await findPart(row.partNumber, row.mfrPartNumber);
+        await tx.placement.updateMany({
+          where: { boardId, ref: { in: fitted } },
+          data: { ...details, partId: part?.id ?? null },
+        });
+        if (part) linked += fitted.length;
+        else notInStock.push({ partNumber: row.partNumber ?? row.mfrPartNumber, refs: fitted });
+      }
+    });
+    res.json({ linked, leftEmpty, notInStock, notOnBoard: notOnBoard.sort(compareRefs), problems });
   });
 
   router.post('/boards/:id/link', async (req, res) => {

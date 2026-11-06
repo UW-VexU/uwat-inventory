@@ -153,8 +153,11 @@ model Placement {
   part          Part?   @relation(fields: [partId], references: [id], onDelete: SetNull)
   /// From the BOM. Kept so the part links itself if it's added to stock later.
   value         String?
+  bomDescription String?
   bomPartNumber String?
   bomMfrNumber  String?
+  /// The BOM says to leave this spot empty.
+  dnp           Boolean @default(false)
 
   @@unique([boardId, ref])
   @@index([partId])

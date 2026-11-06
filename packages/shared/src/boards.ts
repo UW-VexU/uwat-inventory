@@ -16,6 +16,8 @@ export interface PlacementGeometry {
   y: number;
   pads: BoardPad[];
   packageGuess: string | null;
+  /** The BOM says to leave this spot empty. */
+  dnp?: boolean;
 }
 
 export interface LinkedPart {
@@ -27,8 +29,11 @@ export interface LinkedPart {
 }
 
 export interface PlacementView extends PlacementGeometry {
+  dnp: boolean;
   value: string | null;
+  bomDescription: string | null;
   bomPartNumber: string | null;
+  bomMfrNumber: string | null;
   part: LinkedPart | null;
 }
 
@@ -63,7 +68,12 @@ function expandRange(token: string): string[] | null {
 
 /** Reads "C2, C3", "C1,C3,C5-7" or "R1-R4". Returns null if it's anything else, like a project name. */
 export function parseRefList(text: string): string[] | null {
-  const tokens = text.trim().toUpperCase().split(/[\s,;]+/).filter(Boolean);
+  const tokens = text
+    .trim()
+    .toUpperCase()
+    .replace(/\s*(?:\bTO\b|\bTHROUGH\b|–|—)\s*/g, '-')
+    .split(/[\s,;]+/)
+    .filter(Boolean);
   if (tokens.length === 0) return null;
   const refs: string[] = [];
   for (const token of tokens) {
@@ -155,7 +165,7 @@ function resistorRole(self: PlacementGeometry, nets: [string, string], all: read
   if (!rail || !signal) return `Between ${friendlyNet(nets[0])} and ${friendlyNet(nets[1])}`;
 
   const otherHalf = all.some((other) => {
-    if (other.ref === self.ref || refKind(other.ref) !== 'R') return false;
+    if (other.ref === self.ref || other.dnp || refKind(other.ref) !== 'R') return false;
     const otherNets = twoNets(other);
     return otherNets?.includes(signal) && otherNets.some((net) => isRail(net) && net !== rail);
   });
@@ -334,4 +344,69 @@ export function layoutLabels(
     }
   }
   return placed;
+}
+
+const partKey = (text: string | null | undefined) => (text ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+export interface ScannedBag {
+  partNumber: string | null;
+  mfrPartNumber: string | null;
+}
+
+function sameBag(bag: ScannedBag, spot: PlacementView): boolean {
+  const digikey = partKey(bag.partNumber);
+  const maker = partKey(bag.mfrPartNumber);
+  const numbers = [spot.bomPartNumber, spot.part?.partNumber].map(partKey);
+  // The same part comes as cut tape, reel and so on under different DigiKey numbers,
+  // so the maker's number is what really says two bags hold the same thing.
+  return (digikey !== '' && numbers.includes(digikey)) || (maker !== '' && partKey(spot.bomMfrNumber) === maker);
+}
+
+export interface BoardLine {
+  key: string;
+  value: string | null;
+  description: string | null;
+  partNumber: string | null;
+  mfrPartNumber: string | null;
+  refs: string[];
+}
+
+export type ScanVerdict =
+  | { kind: 'fits'; line: BoardLine }
+  | { kind: 'leave-empty'; line: BoardLine }
+  | { kind: 'not-here' };
+
+function toLine(spots: readonly PlacementView[]): BoardLine | null {
+  const first = spots[0];
+  if (!first) return null;
+  return {
+    key: partKey(first.bomMfrNumber) || partKey(first.bomPartNumber) || partKey(first.part?.partNumber) || first.ref,
+    value: first.value,
+    description: first.bomDescription ?? first.part?.description ?? null,
+    partNumber: first.bomPartNumber ?? first.part?.partNumber ?? null,
+    mfrPartNumber: first.bomMfrNumber,
+    refs: spots.map((spot) => spot.ref).sort(compareRefs),
+  };
+}
+
+/** The answer to "does the thing in my hand belong on this board?". */
+export function checkBag(bag: ScannedBag, spots: readonly PlacementView[]): ScanVerdict {
+  const matches = spots.filter((spot) => sameBag(bag, spot));
+  const fitted = toLine(matches.filter((spot) => !spot.dnp));
+  if (fitted) return { kind: 'fits', line: fitted };
+  const empty = toLine(matches);
+  return empty ? { kind: 'leave-empty', line: empty } : { kind: 'not-here' };
+}
+
+/** Everything that has to be found to build this board, one line per distinct part. */
+export function boardLines(spots: readonly PlacementView[]): BoardLine[] {
+  const groups = new Map<string, PlacementView[]>();
+  for (const spot of spots) {
+    if (spot.dnp || !(spot.bomPartNumber || spot.bomMfrNumber || spot.part)) continue;
+    const key = partKey(spot.bomMfrNumber) || partKey(spot.bomPartNumber) || partKey(spot.part?.partNumber) || spot.ref;
+    groups.set(key, [...(groups.get(key) ?? []), spot]);
+  }
+  return [...groups.values()]
+    .flatMap((group) => toLine(group) ?? [])
+    .sort((a, b) => compareRefs(a.refs[0] ?? '', b.refs[0] ?? ''));
 }

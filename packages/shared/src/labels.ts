@@ -22,6 +22,18 @@ export interface BagLabel {
   labelKey: string | null;
 }
 
+/**
+ * Barcode readers don't agree on how to hand back a label. Camera decoders can swap control
+ * characters for their printable pictures (␝ for GS, ␠ for a space), and some USB scanners
+ * start with a code naming the barcode type, like ]d2. Undo both so they all parse the same.
+ */
+function normaliseScan(raw: string): string {
+  return raw
+    .replace(/^\]d\d/, '')
+    .replace(/[\u2400-\u241f]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0x2400))
+    .replaceAll('\u2420', ' ');
+}
+
 function clean(value: string | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -54,7 +66,8 @@ function recoverFields(raw: string): Fields | null {
 }
 
 /** Reads the 2D barcode on a distributor bag (ISO/IEC 15434). Returns null if it isn't one. */
-export function parseBagBarcode(raw: string): BagLabel | null {
+export function parseBagBarcode(scanned: string): BagLabel | null {
+  const raw = normaliseScan(scanned);
   if (!raw.startsWith('[)>')) return null;
   const fields = raw.includes(GS) ? splitFields(raw) : recoverFields(raw);
   if (!fields) return null;

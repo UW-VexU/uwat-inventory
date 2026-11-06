@@ -167,9 +167,12 @@ export function parseImportText(text: string): ParsedImport {
 export interface BomRow {
   line: number;
   refs: string[];
+  /** Spots this part is designed for, but which stay empty on the board. */
+  emptyRefs: string[];
   partNumber: string | null;
   mfrPartNumber: string | null;
   value: string | null;
+  description: string | null;
 }
 
 export interface ParsedBom {
@@ -179,12 +182,17 @@ export interface ParsedBom {
 
 const BOM_ALIASES = {
   refs: ['customerreference', 'custref', 'reference', 'references', 'designator', 'designators', 'refdes'],
-  partNumber: HEADER_ALIASES.partNumber,
+  empty: ['donotpopulate', 'dnp'],
+  partNumber: [...HEADER_ALIASES.partNumber, 'digikeycanadapn', 'digikeyca', 'digikey'],
   mfrPartNumber: [...HEADER_ALIASES.mfrPartNumber, 'lcscpartnumber'],
-  value: ['value', 'description', 'desc', 'comment'],
+  value: ['value', 'comment'],
+  description: ['description', 'desc'],
 } as const;
 
-/** Reads a DigiKey upload file, where Customer Reference holds the designators, or a KiCad BOM. */
+/**
+ * Reads the team's BOM, a DigiKey upload file, or a KiCad BOM.
+ * In a DigiKey upload file, Customer Reference holds the designators.
+ */
 export function parseBom(text: string): ParsedBom {
   const [headers, ...body] = parseCsv(text);
   if (!headers) return { rows: [], problems: [{ line: 1, message: 'The file is empty.' }] };
@@ -192,9 +200,11 @@ export function parseBom(text: string): ParsedBom {
   const find = (aliases: readonly string[]) => headers.findIndex((header) => aliases.includes(headerKey(header)));
   const columns = {
     refs: find(BOM_ALIASES.refs),
+    empty: find(BOM_ALIASES.empty),
     partNumber: find(BOM_ALIASES.partNumber),
     mfrPartNumber: find(BOM_ALIASES.mfrPartNumber),
     value: find(BOM_ALIASES.value),
+    description: find(BOM_ALIASES.description),
   };
   if (columns.refs === -1) {
     return {
@@ -209,17 +219,29 @@ export function parseBom(text: string): ParsedBom {
     const line = index + 2;
     const read = (column: number) => (column === -1 ? '' : (cells[column] ?? '').trim());
     const refText = read(columns.refs);
-    const refs = parseRefList(refText);
+    const emptyText = read(columns.empty);
+    const partNumber = read(columns.partNumber) || null;
+    const mfrPartNumber = read(columns.mfrPartNumber) || null;
+
+    // Totals and notes at the bottom of a BOM have no part on them.
+    if (!refText && !emptyText && !partNumber && !mfrPartNumber) return;
+
+    const refs = refText ? parseRefList(refText) : [];
     if (!refs) {
       problems.push({ line, message: `"${refText}" isn't a list of designators.` });
       return;
     }
+    // This column holds designators in the team's BOM, and a yes or an x in KiCad's.
+    const listed = emptyText ? parseRefList(emptyText) : [];
+    const emptyRefs = listed ?? refs;
     rows.push({
       line,
-      refs,
-      partNumber: read(columns.partNumber) || null,
-      mfrPartNumber: read(columns.mfrPartNumber) || null,
+      refs: listed === null ? [] : refs,
+      emptyRefs,
+      partNumber,
+      mfrPartNumber,
       value: read(columns.value) || null,
+      description: read(columns.description) || null,
     });
   });
   return { rows, problems };

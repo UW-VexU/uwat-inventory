@@ -70,7 +70,14 @@ export function SpotCard({ boardId, spot, placements, onClose, onChanged }: Prop
         </button>
       </header>
 
-      {linking ? (
+      {spot.dnp ? (
+        <div className="spot-part">
+          <p className="spot-empty">Leave this spot empty</p>
+          <p className="muted">
+            The BOM marks it do not populate{spot.value ? ` (designed for ${spot.value})` : ''}.
+          </p>
+        </div>
+      ) : linking ? (
         <PartPicker
           boardId={boardId}
           spot={spot}
@@ -107,18 +114,28 @@ export function SpotCard({ boardId, spot, placements, onClose, onChanged }: Prop
             </div>
           ) : (
             <div className="spot-part">
-              <p className="muted">
-                {spot.bomPartNumber ? `The BOM says ${spot.bomPartNumber}, which isn't in stock.` : 'No part linked yet.'}
-              </p>
-              <button type="button" className="button" onClick={() => setLinking(true)}>
-                Link a part
-              </button>
+              {spot.value || spot.bomPartNumber ? (
+                <>
+                  <p className="spot-value">{spot.value ?? spot.bomPartNumber}</p>
+                  {spot.bomDescription ? <p className="muted">{spot.bomDescription}</p> : null}
+                  <p className="faint">{[spot.bomMfrNumber, spot.bomPartNumber].filter(Boolean).join(' · ')}</p>
+                  <p className="muted">Not in the inventory yet. It links itself once a bag is added.</p>
+                </>
+              ) : (
+                <>
+                  <p className="muted">No part linked yet.</p>
+                  <button type="button" className="button" onClick={() => setLinking(true)}>
+                    Link a part
+                  </button>
+                </>
+              )}
             </div>
           )}
           {role ? <p className="spot-role">{role}</p> : null}
           <WiringDiagram placement={spot} all={placements} />
         </>
       )}
+      {spot.dnp ? <WiringDiagram placement={spot} all={placements} /> : null}
     </aside>
   );
 }

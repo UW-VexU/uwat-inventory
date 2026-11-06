@@ -65,6 +65,23 @@ describe('parseBagBarcode', () => {
     expect(parseBagBarcode(encode(smaller))?.labelKey).not.toBe(parseBagBarcode(encode(WITH_CUST_REF))?.labelKey);
   });
 
+  it('reads a label from a camera decoder, which returns printable pictures of the separators', () => {
+    // Exactly what the browser's decoder gave back for a Data Matrix of this format.
+    const decoded =
+      '[)>␞06␝PR3,␠R5,␠R6,␠R9␠to␠R14␝1PRC0603FR-1310KL␝30P13-RC0603FR-1310KLCT-ND␝K␝1K86761783␝10K104669300␝9D2401␝1TABC123␝11K1␝4LTW␝Q50␝11ZPICK␝12Z5728615␝13Z999999␝20Z000000␞␄';
+    expect(parseBagBarcode(decoded)).toEqual({
+      partNumber: '13-RC0603FR-1310KLCT-ND',
+      mfrPartNumber: 'RC0603FR-1310KL',
+      quantity: 50,
+      project: 'R3, R5, R6, R9 to R14',
+      labelKey: '13-RC0603FR-1310KLCT-ND|104669300|50',
+    });
+  });
+
+  it('ignores the code some USB scanners put at the front', () => {
+    expect(parseBagBarcode(`]d2${encode(WITH_CUST_REF)}`)?.partNumber).toBe('732-8660-1-ND');
+  });
+
   it('rejects things that are not bag labels', () => {
     expect(parseBagBarcode('https://example.com')).toBeNull();
     expect(parseBagBarcode('[)>')).toBeNull();

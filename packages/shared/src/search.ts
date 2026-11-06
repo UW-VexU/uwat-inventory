@@ -167,7 +167,9 @@ function spotText(spot: PlacementView, all: readonly PlacementView[]): string {
     describeRole(spot, all),
     spot.packageGuess,
     spot.value,
+    spot.bomDescription,
     spot.bomPartNumber,
+    spot.bomMfrNumber,
     spot.part?.description,
     spot.part?.partNumber,
     ...(spot.part?.boxes ?? []),
@@ -186,14 +188,17 @@ function spotText(spot: PlacementView, all: readonly PlacementView[]): string {
 export function findSpots(spots: readonly PlacementView[], query: string, kind: string | null = null): string[] {
   const pool = kind ? spots.filter((spot) => refKindName(refKind(spot.ref)) === kind) : spots;
   const trimmed = query.trim();
-  if (!trimmed) return kind ? pool.map((spot) => spot.ref) : [];
 
-  // R1 has to mean R1 alone, not R10 and R11 too.
-  const exact = parseRefList(trimmed);
+  // R1 has to mean R1 alone, not R10 and R11 too. Asking for a spot by name always finds it.
+  const exact = trimmed ? parseRefList(trimmed) : null;
   if (exact) return pool.filter((spot) => exact.includes(spot.ref)).map((spot) => spot.ref);
 
+  // Anything else is "where does this go?", and a spot left empty is never the answer.
+  const fitted = pool.filter((spot) => !spot.dnp);
+  if (!trimmed) return kind ? fitted.map((spot) => spot.ref) : [];
+
   const tokens = trimmed.toUpperCase().split(/\s+/).filter(Boolean).map(expandToken);
-  return pool
+  return fitted
     .filter((spot) => {
       const haystack = spotText(spot, spots);
       return tokens.every((forms) => forms.some((form) => containsToken(haystack, form)));
