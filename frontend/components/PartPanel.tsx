@@ -10,6 +10,7 @@ import { BoxTag } from './BoxTag';
 import { EditPartDialog } from './EditPartDialog';
 import { describeEvent } from './eventText';
 import { Icon } from './Icon';
+import { PartPlacements } from './PartPlacements';
 import { useToast } from './Toast';
 
 interface PartResult {
@@ -129,6 +130,8 @@ export function PartPanel({ part, onClose }: { part: PartSummary; onClose: () =>
           <BagCard key={bag.id} bag={bag} onChanged={onChanged} />
         ))}
       </section>
+
+      <PartPlacements part={part} />
 
       <section className="panel-section">
         <div className="section-head">

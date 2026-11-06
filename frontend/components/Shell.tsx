@@ -10,6 +10,7 @@ import { Icon, type IconName } from './Icon';
 const NAV: ReadonlyArray<{ href: string; label: string; icon: IconName }> = [
   { href: '/', label: 'Inventory', icon: 'parts' },
   { href: '/boxes', label: 'Boxes', icon: 'box' },
+  { href: '/boards', label: 'Boards', icon: 'board' },
   { href: '/activity', label: 'Activity', icon: 'activity' },
   { href: '/import', label: 'Import', icon: 'upload' },
 ];

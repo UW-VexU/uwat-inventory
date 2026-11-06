@@ -40,6 +40,19 @@ export async function api<T>(path: string, { method = 'GET', body }: RequestOpti
   );
 }
 
+/** Sends a file as it is, for uploads that aren't JSON. */
+export async function putFile<T>(path: string, file: File): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+  const data = (await response.json().catch(() => null)) as (T & { error?: { code: string; message: string } }) | null;
+  if (response.ok) return data as T;
+  throw new ApiFailure(response.status, data?.error?.code ?? 'server_error', data?.error?.message ?? 'Upload failed.');
+}
+
 /** crypto.randomUUID needs HTTPS, and this may run on a plain-HTTP team server. */
 export function newRequestId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
