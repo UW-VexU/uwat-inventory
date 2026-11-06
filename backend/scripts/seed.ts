@@ -51,7 +51,7 @@ async function main() {
   if (existing > 0 && !process.argv.includes('--reset')) {
     throw new Error('The database already has parts. Pass --reset to replace them with sample data.');
   }
-  await prisma.$executeRawUnsafe('TRUNCATE "StockEvent", "Bag", "Part", "Box" CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE "Placement", "Board", "StockEvent", "Bag", "Part", "Box" CASCADE');
 
   const users = await Promise.all(
     ['connor', 'eason', 'priya'].map((login, index) =>

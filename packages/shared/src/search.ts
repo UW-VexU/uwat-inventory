@@ -1,3 +1,4 @@
+import { parseRefList } from './boards';
 import { stockStatus, type PartSummary, type StockStatus } from './types';
 
 export interface PartFilters {
@@ -74,6 +75,7 @@ function searchText(part: PartSummary): string {
     part.package,
     part.notes,
     ...part.bags.flatMap((bag) => [bag.box?.code, bag.project]),
+    ...part.usedOn.flatMap((use) => [use.boardName, ...use.refs]),
   ]
     .filter(Boolean)
     .join(' | ')
@@ -150,7 +152,10 @@ export function buildFacets(parts: readonly PartSummary[]) {
     categories: tally(parts.map((part) => part.category)),
     packages: tally(parts.flatMap((part) => (part.package ? [part.package] : []))),
     projects: tally(
-      parts.flatMap((part) => [...new Set(part.bags.flatMap((bag) => (bag.project ? [bag.project] : [])))]),
+      parts.flatMap((part) => [
+        // CUST REF is sometimes a list of designators, which is no use as a project filter.
+        ...new Set(part.bags.flatMap((bag) => (bag.project && !parseRefList(bag.project) ? [bag.project] : []))),
+      ]),
     ),
   };
 }

@@ -2,10 +2,12 @@ import type { Prisma } from '@prisma/client';
 import {
   BOX_CODE_PATTERN,
   CATEGORIES,
+  compareRefs,
   nextBoxCode,
   normaliseBoxCode,
   parseDescription,
   type BagSummary,
+  type BoardUse,
   type InventorySnapshot,
   type PartSummary,
   type StockEventView,
@@ -87,7 +89,28 @@ const activeBags = {
   orderBy: { createdAt: 'asc' },
 } satisfies Prisma.Part$bagsArgs;
 
-type PartRow = Prisma.PartGetPayload<{ include: { bags: typeof activeBags } }>;
+const boardUses = {
+  select: { ref: true, board: { select: { id: true, name: true, revision: true } } },
+} satisfies Prisma.Part$placementsArgs;
+
+const partInclude = { bags: activeBags, placements: boardUses } satisfies Prisma.PartInclude;
+
+type PartRow = Prisma.PartGetPayload<{ include: typeof partInclude }>;
+
+function toBoardUses(placements: PartRow['placements']): BoardUse[] {
+  const uses = new Map<string, BoardUse>();
+  for (const { ref, board } of placements) {
+    const use = uses.get(board.id) ?? {
+      boardId: board.id,
+      boardName: board.name,
+      revision: board.revision,
+      refs: [],
+    };
+    use.refs.push(ref);
+    uses.set(board.id, use);
+  }
+  return [...uses.values()].map((use) => ({ ...use, refs: use.refs.sort(compareRefs) }));
+}
 
 function toSummary(part: PartRow): PartSummary {
   const bags: BagSummary[] = part.bags.map((bag) => ({
@@ -110,13 +133,14 @@ function toSummary(part: PartRow): PartSummary {
     notes: part.notes,
     total: part.bags.reduce((sum, bag) => sum + bag.quantity, 0),
     bags,
+    usedOn: toBoardUses(part.placements),
     updatedAt: new Date(latest).toISOString(),
   };
 }
 
 export async function loadSnapshot(): Promise<InventorySnapshot> {
   const [parts, boxes] = await Promise.all([
-    prisma.part.findMany({ where: { archivedAt: null }, include: { bags: activeBags } }),
+    prisma.part.findMany({ where: { archivedAt: null }, include: partInclude }),
     prisma.box.findMany({
       orderBy: { code: 'asc' },
       include: { _count: { select: { bags: { where: { archivedAt: null } } } } },
@@ -130,7 +154,7 @@ export async function loadSnapshot(): Promise<InventorySnapshot> {
 }
 
 async function partSummary(id: string): Promise<PartSummary> {
-  const part = await prisma.part.findUnique({ where: { id }, include: { bags: activeBags } });
+  const part = await prisma.part.findUnique({ where: { id }, include: partInclude });
   if (!part) throw notFound('Part');
   return toSummary(part);
 }
@@ -183,7 +207,7 @@ export async function findOrCreatePart(tx: Tx, details: BagDetails) {
   const text = description ?? partNumber ?? mfrPartNumber;
   if (!text) throw new ApiError(422, 'invalid', 'A new part needs a description or part number.');
   const parsed = parseDescription(text);
-  return tx.part.create({
+  const created = await tx.part.create({
     data: {
       partNumber: partNumber ?? null,
       mfrPartNumber: mfrPartNumber ?? null,
@@ -193,6 +217,18 @@ export async function findOrCreatePart(tx: Tx, details: BagDetails) {
       minQty: details.minQty ?? null,
     },
   });
+  await claimWaitingSpots(tx, created);
+  return created;
+}
+
+/** A BOM can name a part before any arrive. Once it does, its spots link up on their own. */
+async function claimWaitingSpots(tx: Tx, part: { id: string; partNumber: string | null; mfrPartNumber: string | null }) {
+  const matches: Prisma.PlacementWhereInput[] = [];
+  if (part.partNumber) matches.push({ bomPartNumber: { equals: part.partNumber, mode: 'insensitive' } });
+  if (part.mfrPartNumber) matches.push({ bomMfrNumber: { equals: part.mfrPartNumber, mode: 'insensitive' } });
+  if (matches.length > 0) {
+    await tx.placement.updateMany({ where: { partId: null, OR: matches }, data: { partId: part.id } });
+  }
 }
 
 function eventView(event: EventRow): StockEventView {

@@ -20,7 +20,7 @@ export async function signIn(login = 'connor') {
   nextGithubId += 1;
   const user = await prisma.user.create({ data: { githubId: nextGithubId, login } });
   const cookie = `${SESSION_COOKIE}=${await createSession(user.id)}`;
-  const call = (method: 'get' | 'post' | 'patch' | 'delete', path: string, body?: object) => {
+  const call = (method: 'get' | 'post' | 'put' | 'patch' | 'delete', path: string, body?: object) => {
     const pending = request(app)[method](path).set('Cookie', cookie);
     return body ? pending.send(body) : pending;
   };
@@ -29,6 +29,7 @@ export async function signIn(login = 'connor') {
     get: (path: string) => call('get', path),
     post: (path: string, body: object = {}) => call('post', path, body),
     patch: (path: string, body: object) => call('patch', path, body),
+    put: (path: string) => call('put', path),
     delete: (path: string) => call('delete', path),
   };
 }
@@ -50,6 +51,6 @@ export async function bagQuantity(bagId: string) {
 
 beforeEach(async () => {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE "StockEvent", "Bag", "Part", "Box", "Session", "OAuthState", "User" CASCADE',
+    'TRUNCATE "Placement", "Board", "StockEvent", "Bag", "Part", "Box", "Session", "OAuthState", "User" CASCADE',
   );
 });

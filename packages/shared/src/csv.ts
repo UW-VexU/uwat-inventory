@@ -1,3 +1,4 @@
+import { parseRefList } from './boards';
 import { looksLikeLabelText, parseLabelText } from './labels';
 
 /** RFC 4180: quoted fields, doubled quotes, newlines inside quotes, and a leading BOM. */
@@ -161,4 +162,65 @@ function parseLabelImport(text: string): ParsedImport {
 /** Accepts a CSV, or label text pasted straight from the bags. */
 export function parseImportText(text: string): ParsedImport {
   return looksLikeLabelText(text) ? parseLabelImport(text) : parseCsvImport(text);
+}
+
+export interface BomRow {
+  line: number;
+  refs: string[];
+  partNumber: string | null;
+  mfrPartNumber: string | null;
+  value: string | null;
+}
+
+export interface ParsedBom {
+  rows: BomRow[];
+  problems: ImportProblem[];
+}
+
+const BOM_ALIASES = {
+  refs: ['customerreference', 'custref', 'reference', 'references', 'designator', 'designators', 'refdes'],
+  partNumber: HEADER_ALIASES.partNumber,
+  mfrPartNumber: [...HEADER_ALIASES.mfrPartNumber, 'lcscpartnumber'],
+  value: ['value', 'description', 'desc', 'comment'],
+} as const;
+
+/** Reads a DigiKey upload file, where Customer Reference holds the designators, or a KiCad BOM. */
+export function parseBom(text: string): ParsedBom {
+  const [headers, ...body] = parseCsv(text);
+  if (!headers) return { rows: [], problems: [{ line: 1, message: 'The file is empty.' }] };
+
+  const find = (aliases: readonly string[]) => headers.findIndex((header) => aliases.includes(headerKey(header)));
+  const columns = {
+    refs: find(BOM_ALIASES.refs),
+    partNumber: find(BOM_ALIASES.partNumber),
+    mfrPartNumber: find(BOM_ALIASES.mfrPartNumber),
+    value: find(BOM_ALIASES.value),
+  };
+  if (columns.refs === -1) {
+    return {
+      rows: [],
+      problems: [{ line: 1, message: 'Needs a column of designators, like Customer Reference or Reference.' }],
+    };
+  }
+
+  const rows: BomRow[] = [];
+  const problems: ImportProblem[] = [];
+  body.forEach((cells, index) => {
+    const line = index + 2;
+    const read = (column: number) => (column === -1 ? '' : (cells[column] ?? '').trim());
+    const refText = read(columns.refs);
+    const refs = parseRefList(refText);
+    if (!refs) {
+      problems.push({ line, message: `"${refText}" isn't a list of designators.` });
+      return;
+    }
+    rows.push({
+      line,
+      refs,
+      partNumber: read(columns.partNumber) || null,
+      mfrPartNumber: read(columns.mfrPartNumber) || null,
+      value: read(columns.value) || null,
+    });
+  });
+  return { rows, problems };
 }

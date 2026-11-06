@@ -44,7 +44,16 @@ export interface PartSummary {
   notes: string | null;
   total: number;
   bags: BagSummary[];
+  usedOn: BoardUse[];
   updatedAt: string;
+}
+
+/** The spots this part fills on one board. */
+export interface BoardUse {
+  boardId: string;
+  boardName: string;
+  revision: string;
+  refs: string[];
 }
 
 export interface BoxSummary {

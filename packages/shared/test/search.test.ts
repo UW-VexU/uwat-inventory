@@ -16,6 +16,7 @@ function part(overrides: Partial<PartSummary> & { description: string }): PartSu
     notes: null,
     total: 10,
     bags: [],
+    usedOn: [],
     updatedAt: '2026-11-05T00:00:00.000Z',
     ...overrides,
   };
@@ -68,6 +69,15 @@ describe('filterParts', () => {
     expect(ids(filterParts(all, { query: '100nf' }))).toEqual([cap.id]);
     expect(ids(filterParts(all, { query: '4k7' }))).toEqual([r4k7.id]);
     expect(ids(filterParts(all, { query: '470r' }))).toEqual([r470.id]);
+  });
+
+  it('finds a part by its spot on a board', () => {
+    const used = part({
+      description: 'RES 10K',
+      usedOn: [{ boardId: 'b', boardName: 'Stella Nova', revision: 'A', refs: ['R9', 'R10'] }],
+    });
+    expect(ids(filterParts([used, cap], { query: 'r10' }))).toEqual([used.id]);
+    expect(ids(filterParts([used, cap], { query: 'stella' }))).toEqual([used.id]);
   });
 
   it('treats a lone letter as a whole word', () => {
@@ -123,6 +133,11 @@ describe('buildFacets', () => {
   it('counts each project once per part', () => {
     const twoBags = part({ description: 'x', bags: [bag('B-01', 'BMS'), bag('B-02', 'BMS')] });
     expect(buildFacets([twoBags]).projects).toEqual([{ value: 'BMS', count: 1 }]);
+  });
+
+  it('leaves designator lists out of the project filter', () => {
+    const listed = part({ description: 'x', bags: [bag('B-01', 'C2, C3, C16'), bag('B-02', 'BMS/EMBEDDED')] });
+    expect(buildFacets([listed]).projects).toEqual([{ value: 'BMS/EMBEDDED', count: 1 }]);
   });
 
   it('sorts by most common', () => {

@@ -58,6 +58,7 @@ model Part {
   updatedAt     DateTime     @updatedAt
   bags          Bag[]
   events        StockEvent[]
+  placements    Placement[]
 
   @@index([mfrPartNumber])
 }
@@ -118,4 +119,45 @@ model StockEvent {
 
   @@index([partId, createdAt])
   @@index([createdAt])
+}
+
+/// A PCB design, built from its gerbers. Tells people where each part goes.
+model Board {
+  id            String      @id @default(cuid())
+  name          String
+  revision      String      @default("")
+  widthMm       Float
+  heightMm      Float
+  topSvg        String
+  bottomSvg     String
+  schematic     Bytes?
+  schematicType String?
+  createdAt     DateTime    @default(now())
+  placements    Placement[]
+
+  @@unique([name, revision])
+}
+
+/// One spot on a board, like R12. x and y are mm from the top-left of the top view.
+model Placement {
+  id            String  @id @default(cuid())
+  boardId       String
+  board         Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  ref           String
+  side          String
+  x             Float
+  y             Float
+  pads          Json
+  packageGuess  String?
+  partId        String?
+  part          Part?   @relation(fields: [partId], references: [id], onDelete: SetNull)
+  /// From the BOM. Kept so the part links itself if it's added to stock later.
+  value         String?
+  bomPartNumber String?
+  bomMfrNumber  String?
+
+  @@unique([boardId, ref])
+  @@index([partId])
+  @@index([bomPartNumber])
+  @@index([bomMfrNumber])
 }
