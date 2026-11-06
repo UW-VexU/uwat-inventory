@@ -1,0 +1,154 @@
+const GS = '\u001d';
+const RS = '\u001e';
+const EOT = '\u0004';
+
+/** Longest first, so 10K isn't read as 1 + 0K. Anything else in a label is ignored. */
+const IDENTIFIERS = ['30P', '10K', '11K', '11Z', '12Z', '13Z', '20Z', '1P', '1K', '1T', '9D', '4L', 'P', 'K', 'Q'] as const;
+type Identifier = (typeof IDENTIFIERS)[number];
+type Fields = Partial<Record<Identifier, string>>;
+
+/**
+ * Some phone scanners drop the control characters, which leaves one run of text.
+ * DigiKey always writes the fields in this order, so they can still be recovered.
+ */
+const UNSEPARATED =
+  /^\[\)>06P(.*?)1P(.*?)30P(.*?-ND|.*?)K(.*?)1K(\d*)10K(\d*)9D(\d*)1T(.*?)11K(\d*)4L([A-Z]{0,2})Q(\d+)(?:11Z|$)/;
+
+export interface BagLabel {
+  partNumber: string | null;
+  mfrPartNumber: string | null;
+  quantity: number | null;
+  project: string | null;
+  labelKey: string | null;
+}
+
+function clean(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function splitFields(raw: string): Fields | null {
+  const body = raw.replace(/^\[\)>/, '').replaceAll(RS, GS).replaceAll(EOT, '');
+  const segments = body.split(GS).filter(Boolean);
+  if (segments.length < 3) return null;
+  const fields: Fields = {};
+  for (const segment of segments) {
+    const id = IDENTIFIERS.find((candidate) => segment.startsWith(candidate));
+    if (id) fields[id] = segment.slice(id.length);
+  }
+  return fields;
+}
+
+function recoverFields(raw: string): Fields | null {
+  const match = UNSEPARATED.exec(raw.replace(/[\u0000-\u001f]/g, ''));
+  if (!match) return null;
+  return {
+    P: match[1],
+    '1P': match[2],
+    '30P': match[3],
+    K: match[4],
+    '1K': match[5],
+    '10K': match[6],
+    Q: match[11],
+  };
+}
+
+/** Reads the 2D barcode on a distributor bag (ISO/IEC 15434). Returns null if it isn't one. */
+export function parseBagBarcode(raw: string): BagLabel | null {
+  if (!raw.startsWith('[)>')) return null;
+  const fields = raw.includes(GS) ? splitFields(raw) : recoverFields(raw);
+  if (!fields) return null;
+
+  // P is the customer reference, but DigiKey fills it with its own part number when blank.
+  const customerField = clean(fields.P);
+  const digikeyNumber = clean(fields['30P']);
+  const customerIsPartNumber = customerField !== null && /-ND$/.test(customerField);
+  const partNumber = digikeyNumber ?? (customerIsPartNumber ? customerField : null);
+  const project = customerField === partNumber || customerIsPartNumber ? null : customerField;
+
+  const mfrPartNumber = clean(fields['1P']);
+  const quantityText = clean(fields.Q);
+  const quantity = quantityText !== null && /^\d+$/.test(quantityText) ? Number(quantityText) : null;
+  if (!partNumber && !mfrPartNumber) return null;
+
+  const order = clean(fields['10K']) ?? clean(fields['1K']);
+  const labelKey = order ? [partNumber ?? mfrPartNumber, order, quantity ?? ''].join('|') : null;
+  return { partNumber, mfrPartNumber, quantity, project, labelKey };
+}
+
+export interface LabelText {
+  partNumber: string | null;
+  description: string | null;
+  quantity: number | null;
+  project: string | null;
+}
+
+const LABEL_LINE = /^\s*(P\/?N|DESC(?:RIPTION)?|QTY|QUANTITY|CUST\.?\s*REF(?:ERENCE)?|IDX|INDEX)\s*[:#]?\s*(.*)$/i;
+
+/** True when the text looks like printed label lines rather than a CSV. */
+export function looksLikeLabelText(text: string): boolean {
+  return /^\s*P\/?N\b/im.test(text) && /^\s*(QTY|QUANTITY)\b/im.test(text);
+}
+
+/** Reads the printed lines from one or more labels. Each new P/N line starts a new bag. */
+export function parseLabelText(text: string): LabelText[] {
+  const labels: LabelText[] = [];
+  let current: LabelText | null = null;
+
+  for (const line of text.split(/\r?\n/)) {
+    const match = LABEL_LINE.exec(line);
+    if (!match) continue;
+    const key = (match[1] ?? '').toUpperCase();
+    const value = clean(match[2]);
+
+    if (key.startsWith('P')) {
+      current = { partNumber: value, description: null, quantity: null, project: null };
+      labels.push(current);
+    } else if (!current) {
+      continue;
+    } else if (key.startsWith('DESC')) {
+      current.description = value;
+    } else if (key.startsWith('Q')) {
+      const quantity = value?.replaceAll(',', '') ?? '';
+      current.quantity = /^\d+$/.test(quantity) ? Number(quantity) : null;
+    } else if (key.startsWith('CUST')) {
+      current.project = value;
+    }
+  }
+  return labels;
+}
+
+const BOX_PREFIX = 'UWAT-BOX:';
+
+export function boxQrPayload(code: string): string {
+  return `${BOX_PREFIX}${code}`;
+}
+
+export const BOX_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{0,15}$/;
+
+export function normaliseBoxCode(code: string): string {
+  return code.trim().toUpperCase();
+}
+
+/** Picks the next free B-nn code, filling from the highest number in use. */
+export function nextBoxCode(existing: readonly string[]): string {
+  const highest = existing.reduce((max, code) => {
+    const match = /^B-(\d+)$/.exec(code);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `B-${String(highest + 1).padStart(2, '0')}`;
+}
+
+export type ScanResult =
+  | { kind: 'box'; code: string }
+  | { kind: 'bag'; label: BagLabel }
+  | { kind: 'unknown'; raw: string };
+
+export function classifyScan(raw: string): ScanResult {
+  const text = raw.trim();
+  if (text.startsWith(BOX_PREFIX)) {
+    return { kind: 'box', code: normaliseBoxCode(text.slice(BOX_PREFIX.length)) };
+  }
+  const label = parseBagBarcode(raw);
+  return label ? { kind: 'bag', label } : { kind: 'unknown', raw: text };
+}
