@@ -78,7 +78,9 @@ Clients download the whole inventory in one request and search it locally. At a 
 
 ## Boards
 
-Upload a board's gerbers under **Boards**, as loose files, a folder or a zip. Then open any part to see where it goes, or click any spot on the board to see what goes there.
+Upload a board's gerbers under **Boards**, as loose files, a folder or a zip. The board fills the page with every part labelled on it. Scroll or pinch to zoom and drag to move. Zooming in adds what goes in each spot and which box it's in.
+
+To find where something goes, type it into **What have you got?**: a value (`10k`), a type (`resistor`), a size (`0603`), a designator (`R12`), a net (`SD_CMD`) or a box (`B-08`). Matching spots light up, and Enter flies to them. Hover over a part for the short answer, or click it for a small card with its wiring. Opening a part in the inventory shows a thumbnail of the board, which opens this view with its spots lit.
 
 Gerbers and BOMs each hold part of the picture:
 
