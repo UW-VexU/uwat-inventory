@@ -131,7 +131,7 @@ export function friendlyNet(net: string | null): string {
 
 const isGround = (net: string) => /^\/?(A|D|P)?(GND|VSS)$/i.test(net);
 const isPowerRail = (net: string) => /^\/?(\+?\d+V\d*|VIN|VBUS|VCC|VDD|VBAT|VSYS|VOUT)/i.test(net);
-const isRail = (net: string) => isGround(net) || isPowerRail(net);
+export const isRail = (net: string) => isGround(net) || isPowerRail(net);
 
 function twoNets(placement: Pick<PlacementGeometry, 'pads'>): [string, string] | null {
   const nets = [...new Set(placement.pads.map((pad) => pad.net).filter((net): net is string => Boolean(net)))];
@@ -208,4 +208,130 @@ export function connectionsOf(net: string | null, self: string, all: readonly Pl
     return [placement.pads.length > 3 ? `${placement.ref} pin ${[...new Set(pins)][0]}` : placement.ref];
   });
   return [...new Set(others)].sort(compareRefs);
+}
+
+/** The bit of a DigiKey description that fits on a label: "RES 10K OHM 1% 0603" becomes "10K". */
+export function shortPartName(description: string): string {
+  const words = description.trim().toUpperCase().split(/\s+/);
+  const first = words[0];
+
+  if (first === 'RES') {
+    const index = words.findIndex((word) => /^\d[\d.]*[KMR]?$/.test(word));
+    const value = words[index];
+    if (value) return /[KMR]$/.test(value) ? value : `${value}Ω`;
+  }
+  if (first === 'CAP') {
+    const value = words.find((word) => /^[\d.]+[PNU]F$/.test(word));
+    const voltage = words.find((word) => /^[\d.]+V$/.test(word));
+    if (value) return voltage ? `${value} ${voltage}` : value;
+  }
+  if (first === 'FIXED' || first === 'IND') {
+    const value = words.find((word) => /^[\d.]+[NUM]H$/.test(word));
+    if (value) return value;
+  }
+  return words
+    .filter((word) => word !== 'IC')
+    .slice(0, 2)
+    .join(' ');
+}
+
+export interface SpotBox {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** The area a spot's pads cover, as seen from the given side. The bottom view is mirrored. */
+export function spotBox(placement: Pick<PlacementGeometry, 'pads'>, widthMm: number, side: BoardSide): SpotBox {
+  const flip = (x: number) => (side === 'bottom' ? widthMm - x : x);
+  const lefts = placement.pads.map((pad) => flip(pad.x) - pad.w / 2);
+  const rights = placement.pads.map((pad) => flip(pad.x) + pad.w / 2);
+  const tops = placement.pads.map((pad) => pad.y - pad.h / 2);
+  const bottoms = placement.pads.map((pad) => pad.y + pad.h / 2);
+  return {
+    left: Math.min(...lefts),
+    right: Math.max(...rights),
+    top: Math.min(...tops),
+    bottom: Math.max(...bottoms),
+  };
+}
+
+export interface LabelRequest {
+  ref: string;
+  lines: string[];
+  box: SpotBox;
+  /** Higher goes first, and so wins any fight for space. */
+  priority: number;
+  /** Big parts can hold their own label. On small ones it would hide the pads you're looking for. */
+  canCover?: boolean;
+}
+
+export interface PlacedLabel {
+  ref: string;
+  lines: string[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const LINE_PX = 15;
+const CHAR_PX = 6.4;
+const PADDING_PX = 8;
+const GAP_PX = 2;
+
+function overlaps(a: PlacedLabel, b: { x: number; y: number; w: number; h: number }, gap: number): boolean {
+  return a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+}
+
+/**
+ * Puts a label by each spot without any overlapping, the way a map does.
+ * Labels stay the same size on screen, so zooming in makes room for more of them.
+ * Whatever doesn't fit is left out until there's space.
+ */
+export function layoutLabels(
+  requests: readonly LabelRequest[],
+  pxPerMm: number,
+  board: { widthMm: number; heightMm: number },
+): PlacedLabel[] {
+  const area = (box: SpotBox) => (box.right - box.left) * (box.bottom - box.top);
+  const ordered = [...requests].sort((a, b) => b.priority - a.priority || area(a.box) - area(b.box));
+  const gap = GAP_PX / pxPerMm;
+  const placed: PlacedLabel[] = [];
+
+  for (const request of ordered) {
+    const longest = Math.max(...request.lines.map((line) => line.length));
+    const w = (longest * CHAR_PX + PADDING_PX) / pxPerMm;
+    const h = (request.lines.length * LINE_PX) / pxPerMm;
+    const { box } = request;
+    const middleX = (box.left + box.right) / 2 - w / 2;
+    const middleY = (box.top + box.bottom) / 2 - h / 2;
+
+    const spots = [
+      ...(request.canCover && box.right - box.left >= w && box.bottom - box.top >= h
+        ? [{ x: middleX, y: middleY }]
+        : []),
+      { x: middleX, y: box.top - h - gap },
+      { x: middleX, y: box.bottom + gap },
+      { x: box.right + gap, y: middleY },
+      { x: box.left - w - gap, y: middleY },
+    ];
+
+    for (const spot of spots) {
+      const label = {
+        ref: request.ref,
+        lines: request.lines,
+        w,
+        h,
+        x: Math.min(Math.max(spot.x, 0), Math.max(board.widthMm - w, 0)),
+        y: Math.min(Math.max(spot.y, 0), Math.max(board.heightMm - h, 0)),
+      };
+      if (!placed.some((other) => overlaps(other, label, gap))) {
+        placed.push(label);
+        break;
+      }
+    }
+  }
+  return placed;
 }

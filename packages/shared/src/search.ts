@@ -1,4 +1,4 @@
-import { parseRefList } from './boards';
+import { describeRole, friendlyNet, parseRefList, refKind, refKindName, type PlacementView } from './boards';
 import { stockStatus, type PartSummary, type StockStatus } from './types';
 
 export interface PartFilters {
@@ -158,4 +158,45 @@ export function buildFacets(parts: readonly PartSummary[]) {
       ]),
     ),
   };
+}
+
+function spotText(spot: PlacementView, all: readonly PlacementView[]): string {
+  return [
+    spot.ref,
+    refKindName(refKind(spot.ref)),
+    describeRole(spot, all),
+    spot.packageGuess,
+    spot.value,
+    spot.bomPartNumber,
+    spot.part?.description,
+    spot.part?.partNumber,
+    ...(spot.part?.boxes ?? []),
+    ...spot.pads.map((pad) => friendlyNet(pad.net)),
+  ]
+    .filter(Boolean)
+    .join(' | ')
+    .toUpperCase();
+}
+
+/**
+ * Answers "I've got this in my hand, where does it go?".
+ * Takes a designator, a value, a size, a type of part, a net, or a mix of those.
+ * With no query but a kind chosen, it returns that whole kind.
+ */
+export function findSpots(spots: readonly PlacementView[], query: string, kind: string | null = null): string[] {
+  const pool = kind ? spots.filter((spot) => refKindName(refKind(spot.ref)) === kind) : spots;
+  const trimmed = query.trim();
+  if (!trimmed) return kind ? pool.map((spot) => spot.ref) : [];
+
+  // R1 has to mean R1 alone, not R10 and R11 too.
+  const exact = parseRefList(trimmed);
+  if (exact) return pool.filter((spot) => exact.includes(spot.ref)).map((spot) => spot.ref);
+
+  const tokens = trimmed.toUpperCase().split(/\s+/).filter(Boolean).map(expandToken);
+  return pool
+    .filter((spot) => {
+      const haystack = spotText(spot, spots);
+      return tokens.every((forms) => forms.some((form) => containsToken(haystack, form)));
+    })
+    .map((spot) => spot.ref);
 }

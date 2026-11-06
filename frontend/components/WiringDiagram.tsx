@@ -1,9 +1,4 @@
-import {
-  connectionsOf,
-  friendlyNet,
-  refKind,
-  type PlacementGeometry,
-} from '@uwat/shared';
+import { connectionsOf, friendlyNet, isRail, refKind, type PlacementGeometry } from '@uwat/shared';
 
 const MAX_LISTED = 5;
 
@@ -37,23 +32,9 @@ function Symbol({ kind }: { kind: string }) {
   );
 }
 
-function PinRow({ pin, net, others }: { pin: string; net: string | null; others: string[] }) {
-  const listed = others.slice(0, MAX_LISTED);
-  const extra = others.length - listed.length;
-  return (
-    <tr>
-      <th scope="row">{pin}</th>
-      <td>
-        <span className="pin-net">{friendlyNet(net)}</span>
-        {listed.length > 0 ? (
-          <span className="pin-others">
-            {listed.join(', ')}
-            {extra > 0 ? ` +${extra} more` : ''}
-          </span>
-        ) : null}
-      </td>
-    </tr>
-  );
+function listed(others: readonly string[]): string {
+  const shown = others.slice(0, MAX_LISTED).join(', ');
+  return others.length > MAX_LISTED ? `${shown} +${others.length - MAX_LISTED} more` : shown;
 }
 
 /** A small stand-in for the schematic, drawn from the nets in the gerbers. */
@@ -67,11 +48,11 @@ export function WiringDiagram({ placement, all }: { placement: PlacementGeometry
   });
 
   const [first, second] = pins;
-  const twoPin = pins.length === 2 && first && second;
-
-  return (
-    <div className="wiring">
-      {twoPin ? (
+  if (pins.length === 2 && first && second) {
+    // Power rails reach half the board, so only signals are worth listing here.
+    const signals = pins.filter((pad) => pad.net && !isRail(pad.net));
+    return (
+      <div className="wiring">
         <div className="wire" aria-label={`${placement.ref} connects ${friendlyNet(first.net)} to ${friendlyNet(second.net)}`}>
           <span className="wire-net">{friendlyNet(first.net)}</span>
           <span className="wire-line" />
@@ -79,27 +60,42 @@ export function WiringDiagram({ placement, all }: { placement: PlacementGeometry
           <span className="wire-line" />
           <span className="wire-net">{friendlyNet(second.net)}</span>
         </div>
-      ) : null}
-      <div className={pins.length > 8 ? 'pin-scroll' : undefined}>
-        <table className="pins">
-          <thead>
-            <tr>
-              <th scope="col">Pin</th>
-              <th scope="col">Connects to</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pins.map((pad) => (
-              <PinRow
-                key={`${pad.pin}-${pad.net}`}
-                pin={pad.pin}
-                net={pad.net}
-                others={connectionsOf(pad.net, placement.ref, all)}
-              />
-            ))}
-          </tbody>
-        </table>
+        {signals.map((pad) => {
+          const others = connectionsOf(pad.net, placement.ref, all);
+          return others.length > 0 ? (
+            <p key={pad.pin} className="wire-others">
+              {friendlyNet(pad.net)} goes to {listed(others)}
+            </p>
+          ) : null;
+        })}
       </div>
+    );
+  }
+
+  return (
+    <div className="wiring pin-scroll">
+      <table className="pins">
+        <thead>
+          <tr>
+            <th scope="col">Pin</th>
+            <th scope="col">Connects to</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pins.map((pad) => {
+            const others = pad.net && !isRail(pad.net) ? connectionsOf(pad.net, placement.ref, all) : [];
+            return (
+              <tr key={`${pad.pin}-${pad.net}`}>
+                <th scope="row">{pad.pin}</th>
+                <td>
+                  <span className="pin-net">{friendlyNet(pad.net)}</span>
+                  {others.length > 0 ? <span className="pin-others">{listed(others)}</span> : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

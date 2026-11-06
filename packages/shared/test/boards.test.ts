@@ -5,11 +5,17 @@ import {
   formatRefs,
   friendlyNet,
   guessChipSize,
+  layoutLabels,
   parseRefList,
+  shortPartName,
+  spotBox,
   type BoardPad,
+  type LabelRequest,
   type PlacementGeometry,
+  type PlacementView,
 } from '../src/boards';
 import { parseBom } from '../src/csv';
+import { findSpots } from '../src/search';
 
 function pad(pin: string, net: string | null, x = 0, y = 0, w = 0.8, h = 0.95): BoardPad {
   return { pin, net, x, y, w, h };
@@ -159,5 +165,150 @@ describe('parseBom', () => {
 
   it('explains a file with no designators', () => {
     expect(parseBom('Part,Qty\nA,1').problems[0]?.message).toContain('designators');
+  });
+});
+
+describe('shortPartName', () => {
+  it.each([
+    ['RES 10K OHM 1% 1/10W 0603', '10K'],
+    ['RES SMD 4.7K OHM 5% 1/8W 0805', '4.7K'],
+    ['RES 470 OHM 1% 1/10W 0603', '470Ω'],
+    ['RES 0 OHM 1% 1/10W 0603', '0Ω'],
+    ['CAP CER 0.1UF 50V X7R 0603', '0.1UF 50V'],
+    ['CAP ALUM 100UF 20% 25V SMD', '100UF 25V'],
+    ['FIXED IND 10UH 1A 200 MOHM SMD', '10UH'],
+    ['IC OPAMP GP 4 CIRCUIT 14SOIC', 'OPAMP GP'],
+    ['LED GREEN CLEAR 0603 SMD', 'LED GREEN'],
+    ['Mystery thing', 'MYSTERY THING'],
+  ])('%s', (description, short) => {
+    expect(shortPartName(description)).toBe(short);
+  });
+});
+
+describe('spotBox', () => {
+  const part = { pads: [pad('1', 'A', 10, 5, 1, 2), pad('2', 'B', 12, 5, 1, 2)] };
+
+  it('covers all the pads', () => {
+    expect(spotBox(part, 40, 'top')).toEqual({ left: 9.5, right: 12.5, top: 4, bottom: 6 });
+  });
+
+  it('mirrors for the bottom view', () => {
+    expect(spotBox(part, 40, 'bottom')).toEqual({ left: 27.5, right: 30.5, top: 4, bottom: 6 });
+  });
+});
+
+describe('layoutLabels', () => {
+  const board = { widthMm: 48, heightMm: 40 };
+  const request = (ref: string, x: number, y: number, priority = 0, size = 1): LabelRequest => ({
+    ref,
+    lines: [ref],
+    priority,
+    box: { left: x, right: x + size, top: y, bottom: y + size },
+  });
+
+  it('never lets two labels overlap', () => {
+    const crowd = Array.from({ length: 30 }, (_, index) => request(`R${index}`, 10 + (index % 6), 10 + Math.floor(index / 6)));
+    const labels = layoutLabels(crowd, 20, board);
+    for (const a of labels) {
+      for (const b of labels) {
+        if (a === b) continue;
+        const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+        expect(apart).toBe(true);
+      }
+    }
+  });
+
+  it('fits more labels the further you zoom in', () => {
+    const crowd = Array.from({ length: 30 }, (_, index) => request(`R${index}`, 10 + (index % 6), 10 + Math.floor(index / 6)));
+    const far = layoutLabels(crowd, 15, board).length;
+    const close = layoutLabels(crowd, 80, board).length;
+    expect(close).toBeGreaterThan(far);
+    expect(close).toBe(30);
+  });
+
+  it('gives the matching spots first claim on the space', () => {
+    const labels = layoutLabels([request('R1', 10, 10), request('R2', 10.1, 10, 5)], 8, board);
+    expect(labels[0]?.ref).toBe('R2');
+  });
+
+  it('keeps labels on the board', () => {
+    const [label] = layoutLabels([request('R1', 0, 0)], 20, board);
+    expect(label?.x).toBeGreaterThanOrEqual(0);
+    expect(label?.y).toBeGreaterThanOrEqual(0);
+  });
+
+  it('keeps labels off the pads of small parts', () => {
+    const [label] = layoutLabels([request('R1', 10, 10, 0, 2)], 40, board);
+    const clear = (label?.y ?? 0) + (label?.h ?? 0) <= 10 || (label?.y ?? 0) >= 12;
+    expect(clear).toBe(true);
+  });
+
+  it('puts a label inside a big part that can hold it', () => {
+    const [label] = layoutLabels([{ ...request('U1', 10, 10, 0, 12), canCover: true }], 20, board);
+    expect(label?.x).toBeGreaterThan(10);
+    expect(label?.y).toBeGreaterThan(10);
+    expect((label?.y ?? 0) + (label?.h ?? 0)).toBeLessThan(22);
+  });
+});
+
+describe('findSpots', () => {
+  const view = (
+    ref: string,
+    first: string,
+    second: string,
+    extra: Partial<PlacementView> = {},
+  ): PlacementView => ({
+    ...spot(ref, first, second),
+    packageGuess: '0603',
+    value: null,
+    bomPartNumber: null,
+    part: null,
+    ...extra,
+  });
+
+  const tenK = { id: 'p1', partNumber: '311-10K-ND', description: 'RES 10K OHM 1% 1/10W 0603', total: 800, boxes: ['B-08'] };
+  const cap = { id: 'p2', partNumber: 'C-ND', description: 'CAP CER 0.1UF 50V X7R 0603', total: 40, boxes: ['B-02'] };
+  const r1 = view('R1', 'VIN', 'Net-(U2-EN)');
+  const r9 = view('R9', '+3V3', '/SD_CMD', { part: tenK });
+  const r10 = view('R10', '+3V3', '/SD_D0', { part: tenK });
+  const r11 = view('R11', '+3V3', '/SD_D1', { packageGuess: '0805' });
+  const c4 = view('C4', '+3V3', 'GND', { part: cap });
+  const all = [r1, r9, r10, r11, c4];
+
+  it('finds spots from a value in your hand', () => {
+    expect(findSpots(all, '10k')).toEqual(['R9', 'R10']);
+    expect(findSpots(all, '100n')).toEqual(['C4']);
+    expect(findSpots(all, '0.1uf')).toEqual(['C4']);
+  });
+
+  it('finds spots from just the type of part', () => {
+    expect(findSpots(all, 'resistor')).toEqual(['R1', 'R9', 'R10', 'R11']);
+    expect(findSpots(all, 'capacitor')).toEqual(['C4']);
+  });
+
+  it('combines words', () => {
+    expect(findSpots(all, 'resistor 0805')).toEqual(['R11']);
+  });
+
+  it('takes a designator to mean exactly that one', () => {
+    expect(findSpots(all, 'r1')).toEqual(['R1']);
+    expect(findSpots(all, 'R9-R10')).toEqual(['R9', 'R10']);
+  });
+
+  it('finds spots by net, role, box and part number', () => {
+    expect(findSpots(all, 'sd_cmd')).toEqual(['R9']);
+    expect(findSpots(all, 'pull-up')).toEqual(['R1', 'R9', 'R10', 'R11']);
+    expect(findSpots(all, 'b-08')).toEqual(['R9', 'R10']);
+    expect(findSpots(all, '311-10k')).toEqual(['R9', 'R10']);
+  });
+
+  it('shows a whole kind when one is picked, and narrows it with a query', () => {
+    expect(findSpots(all, '', 'Capacitors')).toEqual(['C4']);
+    expect(findSpots(all, '10k', 'Capacitors')).toEqual([]);
+    expect(findSpots(all, '0805', 'Resistors')).toEqual(['R11']);
+  });
+
+  it('matches nothing when nothing is asked', () => {
+    expect(findSpots(all, '   ')).toEqual([]);
   });
 });
