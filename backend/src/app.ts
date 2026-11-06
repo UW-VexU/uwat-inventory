@@ -20,6 +20,13 @@ export function createApp(config: Config) {
     res.json({ ok: true });
   });
   app.use('/api/auth', authRoutes(config));
+  if (config.devLogin) {
+    // Shows what a real label holds while testing on a phone. Never exists in production.
+    app.post('/api/debug/scan', requireUser(config), (req, res) => {
+      console.log(`[scan] ${JSON.stringify(req.body)}`);
+      res.json({ ok: true });
+    });
+  }
   app.use('/api', requireUser(config), inventoryRoutes(), importRoutes(), boardRoutes());
   app.use('/api', (_req, _res) => {
     throw new ApiError(404, 'not_found', 'No such endpoint.');

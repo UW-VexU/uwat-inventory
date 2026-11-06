@@ -2,11 +2,10 @@
 
 import {
   boardLines,
-  checkBag,
-  classifyScan,
   describeRole,
   findSpots,
   formatRefs,
+  judgeScan,
   refKind,
   refKindName,
   shortPartName,
@@ -147,17 +146,11 @@ export function BoardScreen() {
   /** Judges a scanned or typed code against this board. False means it wasn't a part code at all. */
   const runScan = useCallback(
     (raw: string): boolean => {
-      const read = classifyScan(raw);
-      const typed = raw.trim();
-      const bag =
-        read.kind === 'bag'
-          ? read.label
-          : { partNumber: typed, mfrPartNumber: typed, quantity: null, project: null, labelKey: null };
-      const verdict = checkBag(bag, placements);
-      if (read.kind !== 'bag' && verdict.kind === 'not-here' && !/-ND$/i.test(typed)) return false;
+      const judged = judgeScan(raw, placements);
+      if (!judged) return false;
 
-      const code = bag.partNumber ?? bag.mfrPartNumber ?? typed;
-      const result: ScanResult = { id: Date.now(), code, quantity: bag.quantity, verdict, otherBoards: null };
+      const { bag, verdict } = judged;
+      const result: ScanResult = { id: Date.now(), code: judged.code, quantity: judged.quantity, verdict, otherBoards: null };
       setScan(result);
       setQuery('');
       setKind(null);

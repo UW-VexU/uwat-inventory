@@ -1,3 +1,5 @@
+import { classifyScan } from './labels';
+
 export interface BoardPad {
   pin: string;
   net: string | null;
@@ -396,6 +398,29 @@ export function checkBag(bag: ScannedBag, spots: readonly PlacementView[]): Scan
   if (fitted) return { kind: 'fits', line: fitted };
   const empty = toLine(matches);
   return empty ? { kind: 'leave-empty', line: empty } : { kind: 'not-here' };
+}
+
+export interface ScanJudgement {
+  /** The best name we have for what was scanned. */
+  code: string;
+  quantity: number | null;
+  bag: ScannedBag;
+  verdict: ScanVerdict;
+}
+
+/** Takes whatever a scanner or keyboard produced. Returns null if it wasn't a part code at all. */
+export function judgeScan(raw: string, spots: readonly PlacementView[]): ScanJudgement | null {
+  const read = classifyScan(raw);
+  const typed = raw.trim();
+  const bag: ScannedBag = read.kind === 'bag' ? read.label : { partNumber: typed, mfrPartNumber: typed };
+  const verdict = checkBag(bag, spots);
+  if (read.kind !== 'bag' && verdict.kind === 'not-here' && !/-ND$/i.test(typed)) return null;
+  return {
+    code: bag.partNumber ?? bag.mfrPartNumber ?? typed,
+    quantity: read.kind === 'bag' ? read.label.quantity : null,
+    bag,
+    verdict,
+  };
 }
 
 /** Everything that has to be found to build this board, one line per distinct part. */

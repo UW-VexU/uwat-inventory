@@ -122,6 +122,50 @@ describe('GitHub sign-in', () => {
   });
 });
 
+describe('bearer tokens, for the phone app', () => {
+  async function devToken() {
+    const devApp = createApp({ ...testConfig, devLogin: true });
+    const { body } = await request(devApp).post('/api/auth/dev').send({ login: 'phone' });
+    return { devApp, token: body.token as string };
+  }
+
+  it('signs in with the token from dev sign-in', async () => {
+    const { devApp, token } = await devToken();
+    const response = await request(devApp).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
+    expect(response.status).toBe(200);
+    expect(response.body.user.login).toBe('phone');
+  });
+
+  it('turns away a made-up token', async () => {
+    const response = await request(app).get('/api/inventory').set('Authorization', 'Bearer made-up');
+    expect(response.status).toBe(401);
+  });
+
+  it("doesn't apply the cross-site check, which only protects cookies", async () => {
+    const { devApp, token } = await devToken();
+    const response = await request(devApp)
+      .post('/api/boxes')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Origin', 'https://somewhere.example')
+      .send({});
+    expect(response.status).toBe(201);
+  });
+
+  it('signs out for real', async () => {
+    const { devApp, token } = await devToken();
+    await request(devApp).post('/api/auth/logout').set('Authorization', `Bearer ${token}`);
+    const response = await request(devApp).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
+    expect(response.status).toBe(401);
+  });
+
+  it('only has the scan log when dev sign-in is on', async () => {
+    const { devApp, token } = await devToken();
+    const auth = `Bearer ${token}`;
+    expect((await request(devApp).post('/api/debug/scan').set('Authorization', auth).send({ raw: 'x' })).status).toBe(200);
+    expect((await request(app).post('/api/debug/scan').set('Authorization', auth).send({ raw: 'x' })).status).toBe(404);
+  });
+});
+
 describe('session cookie', () => {
   it('is Secure on HTTPS and left off on plain HTTP, where browsers would drop it', () => {
     expect(loadConfig({ PUBLIC_URL: 'https://inventory.uwvexu.ca' }).secureCookies).toBe(true);

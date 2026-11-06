@@ -7,6 +7,7 @@ import {
   formatRefs,
   friendlyNet,
   guessChipSize,
+  judgeScan,
   layoutLabels,
   parseRefList,
   shortPartName,
@@ -423,6 +424,14 @@ describe('checkBag', () => {
 
   it("doesn't match a blank label to a blank spot", () => {
     expect(checkBag({ partNumber: null, mfrPartNumber: null }, spots)).toEqual({ kind: 'not-here' });
+  });
+
+  it('judges a full barcode, a typed number, and text that is neither', () => {
+    const barcode = `[)>\u001e06\u001dP\u001d1PRC0603FR-1310KL\u001d30P13-RC0603FR-1310KLCT-ND\u001dK\u001d1K1\u001d10K2\u001dQ50\u001d11ZPICK\u001e\u0004`;
+    expect(judgeScan(barcode, spots)).toMatchObject({ quantity: 50, verdict: { kind: 'fits' } });
+    expect(judgeScan('13-RC0603FR-1310KLCT-ND', spots)).toMatchObject({ quantity: null, verdict: { kind: 'fits' } });
+    expect(judgeScan('LM323M-ND', spots)).toMatchObject({ code: 'LM323M-ND', verdict: { kind: 'not-here' } });
+    expect(judgeScan('10k', spots)).toBeNull();
   });
 
   it('checks a linked part when the spot has no BOM data', () => {

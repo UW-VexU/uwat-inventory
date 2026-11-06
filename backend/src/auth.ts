@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { User } from '@prisma/client';
-import { Router, type RequestHandler, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import type { Config } from './config';
 import { prisma } from './db';
@@ -42,14 +42,26 @@ async function userForToken(token: string): Promise<User | null> {
   return session.user;
 }
 
+/** The website signs in with a cookie, and the phone app with a bearer token. */
+function bearerToken(req: Request): string | null {
+  const header = req.get('authorization');
+  return header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
+}
+
+function sessionToken(req: Request): string | null {
+  const cookie: unknown = req.cookies?.[SESSION_COOKIE];
+  return bearerToken(req) ?? (typeof cookie === 'string' ? cookie : null);
+}
+
 export function requireUser(config: Config): RequestHandler {
   return async (req, _res, next) => {
-    const token: unknown = req.cookies?.[SESSION_COOKIE];
-    const user = typeof token === 'string' ? await userForToken(token) : null;
+    const token = sessionToken(req);
+    const user = token ? await userForToken(token) : null;
     if (!user) throw new ApiError(401, 'unauthenticated', 'Sign in to continue.');
 
+    // Only cookies are sent by browsers on their own, so only they need this check.
     const origin = req.get('origin');
-    if (!['GET', 'HEAD'].includes(req.method) && origin && origin !== config.publicUrl) {
+    if (!bearerToken(req) && !['GET', 'HEAD'].includes(req.method) && origin && origin !== config.publicUrl) {
       throw new ApiError(403, 'bad_origin', 'This request came from another site.');
     }
     req.user = user;
@@ -164,8 +176,8 @@ export function authRoutes(config: Config): Router {
   });
 
   router.post('/logout', async (req, res) => {
-    const token: unknown = req.cookies?.[SESSION_COOKIE];
-    if (typeof token === 'string') await prisma.session.deleteMany({ where: { tokenHash: hash(token) } });
+    const token = sessionToken(req);
+    if (token) await prisma.session.deleteMany({ where: { tokenHash: hash(token) } });
     res.clearCookie(SESSION_COOKIE, { path: '/' });
     res.json({ ok: true });
   });
@@ -180,8 +192,9 @@ export function authRoutes(config: Config): Router {
         create: { githubId, login, name: login },
         update: {},
       });
-      setSessionCookie(res, await createSession(user.id), config);
-      res.json({ user: { id: user.id, login: user.login, name: user.name, avatarUrl: user.avatarUrl } });
+      const token = await createSession(user.id);
+      setSessionCookie(res, token, config);
+      res.json({ token, user: { id: user.id, login: user.login, name: user.name, avatarUrl: user.avatarUrl } });
     });
   }
 

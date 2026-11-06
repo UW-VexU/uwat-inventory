@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "UWAT Inventory",
+    "slug": "uwat-inventory",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ca.uwvexu.inventory"
+    },
+    "android": {
+      "package": "ca.uwvexu.inventory",
+      "adaptiveIcon": {
+        "backgroundColor": "#111111",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "The camera reads the barcode on a parts bag.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
+    ],
+    "scheme": "uwatinventory",
+    "backgroundColor": "#111111"
+  }
+}
