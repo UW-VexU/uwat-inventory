@@ -11,6 +11,8 @@ A **part** is a kind of thing, like `IC OPAMP GP 4 CIRCUIT 14SOIC`. A **bag** is
 
 Every stock change is recorded with who, when, how many and why, and most can be undone.
 
+A **board** is built from its gerbers. Each component on it is a **spot**, like `R12`. Linking a spot to a part answers "where does this go?" from the part, and "what goes here?" from the board.
+
 From a DigiKey bag label we keep:
 
 | Label | Stored as |
@@ -21,6 +23,8 @@ From a DigiKey bag label we keep:
 | `CUST REF` | Project, used as a filter |
 
 `IDX` isn't stored.
+
+`CUST REF` isn't always a project. In the team's DigiKey upload files it holds designators, like `C2, C3, C16`, so those are left out of the project filter.
 
 ## Running it locally
 
@@ -56,7 +60,7 @@ The API tests use a database called `uwat_inventory_test`. Set `TEST_DATABASE_UR
 ## Layout
 
 ```
-packages/shared/   Label parsing, description parsing, search and CSV. Used by everything.
+packages/shared/   Label, description and BOM parsing, search and board logic. Used by everything.
 backend/           Express API, Prisma and Postgres
 frontend/          Next.js website
 brand/             Logos, copied from the UWAT VEXU brand guide
@@ -71,5 +75,23 @@ Clients download the whole inventory in one request and search it locally. At a 
 - **Add bag:** paste a whole label into the P/N box and it fills in the form.
 - **Import:** takes a CSV, such as a DigiKey order export, or pasted label text.
 - **Boxes > Print labels:** prints a sheet of box labels with QR codes for the phone app.
+
+## Boards
+
+Upload a board's gerbers under **Boards**, as loose files, a folder or a zip. Then open any part to see where it goes, or click any spot on the board to see what goes there.
+
+Gerbers and BOMs each hold part of the picture:
+
+| Comes from | What it gives you |
+| --- | --- |
+| Gerbers | The board drawing, where each spot is, and what each pin connects to |
+| BOM | Which part goes in each spot |
+| Schematic PDF, PNG or JPEG | The real schematic, attached to the board |
+
+Gerbers don't include part values, so a board has no links until you upload a BOM or link spots by hand. **Upload BOM** takes the team's DigiKey upload file, where `Customer Reference` lists the designators, or a KiCad BOM. Spots whose part isn't in stock yet link by themselves when it's added.
+
+Plot gerbers from KiCad with the X2 format and netlist attributes turned on. Without them, the files don't say which pad belongs to which part.
+
+Lines like "Pull-up on SD_CMD" are worked out from the wiring alone, so treat them as a guide. Chip sizes such as "looks like 0603" are worked out from the pad layout.
 
 Deployment is in [DEPLOY.md](DEPLOY.md).
