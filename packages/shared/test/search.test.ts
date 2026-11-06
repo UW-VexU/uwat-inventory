@@ -70,6 +70,13 @@ describe('filterParts', () => {
     expect(ids(filterParts(all, { query: '470r' }))).toEqual([r470.id]);
   });
 
+  it('treats a lone letter as a whole word', () => {
+    const usbC = part({ description: 'CONN RCPT USB-C 24POS SMD' });
+    const microB = part({ description: 'CONN RCPT MICRO USB B 5POS SMD' });
+    expect(ids(filterParts([usbC, microB], { query: 'usb c' }))).toEqual([usbC.id]);
+    expect(ids(filterParts([usbC, microB], { query: 'usb b' }))).toEqual([microB.id]);
+  });
+
   it('puts an exact part number first', () => {
     const similar = part({ partNumber: 'LM323M-ND-OLD', description: 'A first alphabetically' });
     expect(filterParts([similar, opamp], { query: 'lm323m-nd' })[0]?.id).toBe(opamp.id);

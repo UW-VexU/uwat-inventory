@@ -311,20 +311,20 @@ export function inventoryRoutes(): Router {
 
   router.post('/bags/:id/take', async (req, res) => {
     const body = parse(amountBody, req.body);
-    await takeStock(req.params.id, body.amount, actor(req.user!.id, body));
-    res.json({ part: await partForBag(req.params.id) });
+    const event = await takeStock(req.params.id, body.amount, actor(req.user!.id, body));
+    res.json({ part: await partForBag(req.params.id), eventId: event.id });
   });
 
   router.post('/bags/:id/add', async (req, res) => {
     const body = parse(amountBody, req.body);
-    await addStock(req.params.id, body.amount, actor(req.user!.id, body));
-    res.json({ part: await partForBag(req.params.id) });
+    const event = await addStock(req.params.id, body.amount, actor(req.user!.id, body));
+    res.json({ part: await partForBag(req.params.id), eventId: event.id });
   });
 
   router.post('/bags/:id/count', async (req, res) => {
     const body = parse(countBody, req.body);
-    await countStock(req.params.id, body.counted, actor(req.user!.id, body));
-    res.json({ part: await partForBag(req.params.id) });
+    const event = await countStock(req.params.id, body.counted, actor(req.user!.id, body));
+    res.json({ part: await partForBag(req.params.id), eventId: event.id });
   });
 
   router.patch('/bags/:id', async (req, res) => {
@@ -362,8 +362,8 @@ export function inventoryRoutes(): Router {
   });
 
   router.delete('/bags/:id', async (req, res) => {
-    await removeBag(req.params.id, { userId: req.user!.id });
-    res.json({ part: await partForBag(req.params.id) });
+    const event = await removeBag(req.params.id, { userId: req.user!.id });
+    res.json({ part: await partForBag(req.params.id), eventId: event.id });
   });
 
   router.post('/boxes', async (req, res) => {

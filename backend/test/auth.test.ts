@@ -122,6 +122,19 @@ describe('GitHub sign-in', () => {
   });
 });
 
+describe('session cookie', () => {
+  it('is Secure on HTTPS and left off on plain HTTP, where browsers would drop it', () => {
+    expect(loadConfig({ PUBLIC_URL: 'https://inventory.uwvexu.ca' }).secureCookies).toBe(true);
+    expect(loadConfig({ NODE_ENV: 'production', PUBLIC_URL: 'http://10.0.0.5:2210' }).secureCookies).toBe(false);
+  });
+
+  it('carries the Secure flag when the site is on HTTPS', async () => {
+    const secureApp = createApp({ ...testConfig, devLogin: true, secureCookies: true });
+    const response = await request(secureApp).post('/api/auth/dev').send({ login: 'tester' });
+    expect(String(response.headers['set-cookie'])).toContain('Secure');
+  });
+});
+
 describe('dev sign-in', () => {
   it('gets nobody in unless turned on', async () => {
     const response = await request(app).post('/api/auth/dev').send({ login: 'x' });

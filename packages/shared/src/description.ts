@@ -19,7 +19,7 @@ const CATEGORY_RULES: ReadonlyArray<readonly [RegExp, Category]> = [
 
 const CHIP_SIZE = /\b(01005|0201|0402|0603|0805|1008|1206|1210|1812|2010|2512)\b/;
 const COUNTED_PACKAGE =
-  /\b(\d{1,3})?(SOIC|TSSOP|HTSSOP|SSOP|MSOP|VSSOP|QFN|VQFN|WQFN|UQFN|DFN|WDFN|WSON|SON|LQFP|TQFP|QFP|BGA|PDIP|DIP|SIP)\b(?:-(\d{1,3}))?/;
+  /\b(\d{1,3})?(SOIC|TSSOP|HTSSOP|SSOP|MSOP|VSSOP|QFN|VQFN|WQFN|UQFN|DFN|WDFN|WSON|SON|LQFP|TQFP|QFP|LGA|BGA|PDIP|DIP|SIP)\b(?:-(\d{1,3}))?/;
 const NAMED_PACKAGE = /\b(SOT-?\d+(?:-\d+)?|SOD-?\d+|SC-?\d+|TO-?\d+[A-Z]*|D2PAK|DPAK|SMA|SMB|SMC)\b/;
 
 export interface ParsedDescription {

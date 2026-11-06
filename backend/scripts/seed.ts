@@ -89,7 +89,7 @@ async function main() {
     for (let bagIndex = 0; bagIndex < bagCount; bagIndex += 1) {
       const quantity =
         index === 0 ? 5 : random() < 0.05 ? 0 : Math.floor(random() * (passive ? 900 : 40)) + 1;
-      const box = random() < 0.03 ? null : pick(boxes);
+      const box = index === 0 ? boxes[6] : random() < 0.03 ? null : pick(boxes);
       const bag = await prisma.bag.create({
         data: { partId: part.id, boxId: box?.id ?? null, quantity, project: index === 0 ? 'BMS/EMBEDDED' : pick(projects) },
       });

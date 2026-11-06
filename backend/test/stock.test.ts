@@ -12,6 +12,7 @@ describe('taking and adding', () => {
     expect(response.status).toBe(200);
     expect(response.body.part.total).toBe(7);
     const event = await prisma.stockEvent.findFirstOrThrow({ where: { type: 'TAKE' } });
+    expect(response.body.eventId).toBe(event.id);
     expect(event).toMatchObject({ delta: -3, quantityAfter: 7, note: 'BMS rev 2', userId: client.user.id });
   });
 

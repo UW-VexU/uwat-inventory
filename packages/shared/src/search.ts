@@ -38,16 +38,31 @@ export function expandToken(token: string): string[] {
   return forms;
 }
 
-/** Values must match from their start, so 10K doesn't hit 110K and 5V doesn't hit 25V. */
-function containsToken(haystack: string, token: string): boolean {
-  if (!/^[\d.]/.test(token)) return haystack.includes(token);
+function occursWhere(haystack: string, token: string, accept: (index: number) => boolean): boolean {
   let index = haystack.indexOf(token);
   while (index !== -1) {
-    const before = haystack[index - 1];
-    if (before === undefined || !/[\d.]/.test(before)) return true;
+    if (accept(index)) return true;
     index = haystack.indexOf(token, index + 1);
   }
   return false;
+}
+
+const isWordCharacter = (char: string | undefined) => char !== undefined && /[A-Z0-9]/.test(char);
+
+function containsToken(haystack: string, token: string): boolean {
+  // Values must match from their start, so 10K doesn't hit 110K and 5V doesn't hit 25V.
+  if (/^[\d.]/.test(token)) {
+    return occursWhere(haystack, token, (index) => !/[\d.]/.test(haystack[index - 1] ?? ' '));
+  }
+  // A lone letter would match nearly everything, so "usb c" has to mean the word C.
+  if (token.length === 1) {
+    return occursWhere(
+      haystack,
+      token,
+      (index) => !isWordCharacter(haystack[index - 1]) && !isWordCharacter(haystack[index + 1]),
+    );
+  }
+  return haystack.includes(token);
 }
 
 function searchText(part: PartSummary): string {

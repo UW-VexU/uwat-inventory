@@ -6,11 +6,10 @@ import type { Config } from '../src/config';
 import { prisma } from '../src/db';
 
 export const testConfig: Config = {
-  isProduction: false,
   publicUrl: 'http://localhost:2210',
+  secureCookies: false,
   devLogin: false,
   github: { clientId: 'id', clientSecret: 'secret', org: 'UW-VexU' },
-  digikey: null,
 };
 
 export const app = createApp(testConfig);

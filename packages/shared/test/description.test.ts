@@ -25,7 +25,7 @@ describe('parseDescription', () => {
     ['SENSOR HALL ANALOG SOT23-3', 'Sensors', 'SOT-23-3'],
     ['IC REG LINEAR 3.3V 1A SOT223', 'ICs', 'SOT-223'],
     ['IC MCU 32BIT 1MB FLASH 100LQFP', 'ICs', 'LQFP-100'],
-    ['ACCEL/GYRO 6-AXIS I2C SPI 14LGA', 'Sensors', null],
+    ['ACCEL/GYRO 6-AXIS I2C SPI 14LGA', 'Sensors', 'LGA-14'],
     ['Mystery thing from a drawer', 'Other', null],
   ])('%s', (description, category, pkg) => {
     expect(parseDescription(description)).toEqual({ category, package: pkg });
