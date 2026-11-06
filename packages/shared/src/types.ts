@@ -77,7 +77,7 @@ export interface StockEventView {
   user: { login: string; name: string | null; avatarUrl: string | null };
   part: { id: string; partNumber: string | null; description: string };
   bagId: string;
-  box: BoxRef | null;
+  boxCode: string | null;
   undoOfId: string | null;
   undone: boolean;
   canUndo: boolean;
