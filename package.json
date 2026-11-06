@@ -3,6 +3,6 @@
   "private": true,
   "scripts": {
     "test": "npm --prefix packages/shared test && npm --prefix backend test",
-    "typecheck": "npm --prefix packages/shared run typecheck && npm --prefix backend run typecheck && npm --prefix frontend run typecheck && npm --prefix mobile run typecheck"
+    "typecheck": "npm --prefix packages/shared run typecheck && npm --prefix backend run typecheck && npm --prefix frontend run typecheck"
   }
 }

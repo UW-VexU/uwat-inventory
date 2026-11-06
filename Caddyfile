@@ -1,0 +1,14 @@
+{
+	admin off
+}
+
+:2210 {
+	encode gzip
+	@api path /api/*
+	handle @api {
+		reverse_proxy api:2211
+	}
+	handle {
+		reverse_proxy web:2210
+	}
+}
