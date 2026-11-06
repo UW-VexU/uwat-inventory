@@ -80,7 +80,17 @@ Clients download the whole inventory in one request and search it locally. At a 
 
 Upload a board's gerbers under **Boards**, as loose files, a folder or a zip. The board fills the page with every part labelled on it. Scroll or pinch to zoom and drag to move. Zooming in adds what goes in each spot and which box it's in.
 
-To find where something goes, type it into **What have you got?**: a value (`10k`), a type (`resistor`), a size (`0603`), a designator (`R12`), a net (`SD_CMD`) or a box (`B-08`). Matching spots light up, and Enter flies to them. Hover over a part for the short answer, or click it for a small card with its wiring. Opening a part in the inventory shows a thumbnail of the board, which opens this view with its spots lit.
+### Checking a mixed box against a board
+
+A box often holds parts for several boards. Open the board you're building, then scan each item from the box:
+
+- **Goes on this board** lights every spot it belongs in and says how many are needed.
+- **Not for this board** names the board it belongs to, if that board has been uploaded.
+- **Leave this one off** means the BOM marks that spot do not populate.
+
+Scan with a USB scanner, which works wherever the focus is, or with the camera button. The camera needs HTTPS, or localhost. Parts are matched on the DigiKey number, then the maker's number, because one part can be sold under several DigiKey numbers. **Found** tracks what's been scanned on this computer and lists what's still missing, and found spots stay marked on the board.
+
+The same box takes typed searches: a value (`10k`), a type (`resistor`), a size (`0603`), a designator (`R12`), a net (`SD_CMD`) or a box (`B-08`). Matching spots light up, and Enter flies to them. Hover over a part for the short answer, or click it for a small card with its wiring. Opening a part in the inventory shows a thumbnail of the board, which opens this view with its spots lit.
 
 Gerbers and BOMs each hold part of the picture:
 
@@ -90,7 +100,7 @@ Gerbers and BOMs each hold part of the picture:
 | BOM | Which part goes in each spot |
 | Schematic PDF, PNG or JPEG | The real schematic, attached to the board |
 
-Gerbers don't include part values, so a board has no links until you upload a BOM or link spots by hand. **Upload BOM** takes the team's DigiKey upload file, where `Customer Reference` lists the designators, or a KiCad BOM. Spots whose part isn't in stock yet link by themselves when it's added.
+Gerbers don't include part values, so a board knows nothing about its parts until you upload a BOM. **Upload BOM** takes the plain BOM from a board's `bom/` folder, the team's DigiKey upload file, or a KiCad BOM. Use the plain BOM when there is one: the DigiKey upload file leaves out parts that aren't ordered from DigiKey and spots that stay empty. Scanning and searching work from the BOM alone, with nothing in stock. Spots link to the inventory by themselves once a bag of that part is added.
 
 Plot gerbers from KiCad with the X2 format and netlist attributes turned on. Without them, the files don't say which pad belongs to which part.
 
