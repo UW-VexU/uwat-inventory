@@ -2,7 +2,7 @@
 
 Parts inventory for UWAT VEXU Competitive Robotics. It tracks every bag of electrical parts: what's in it, how many, and which box it's in.
 
-- **Phase 1 (in progress):** the website is done. The phone app is next.
+- **Phase 1 (in progress):** the website is done. The phone app can check parts against a board. Its inventory screens are still to come.
 - **Phase 2:** NFC tags on bags. Each bag already has a reserved `tagUid` field.
 
 ## How it's organised
@@ -63,6 +63,7 @@ The API tests use a database called `uwat_inventory_test`. Set `TEST_DATABASE_UR
 packages/shared/   Label, description and BOM parsing, search and board logic. Used by everything.
 backend/           Express API, Prisma and Postgres
 frontend/          Next.js website
+mobile/            Expo phone app
 brand/             Logos, copied from the UWAT VEXU brand guide
 ```
 
@@ -105,5 +106,21 @@ Gerbers don't include part values, so a board knows nothing about its parts unti
 Plot gerbers from KiCad with the X2 format and netlist attributes turned on. Without them, the files don't say which pad belongs to which part.
 
 Lines like "Pull-up on SD_CMD" are worked out from the wiring alone, so treat them as a guide. Chip sizes such as "looks like 0603" are worked out from the pad layout.
+
+## Phone app
+
+The Expo app in `mobile/` does the board check: pick a board, scan each item from the box, and see if it belongs. It works on iOS and Android, and shares its logic with the website through `packages/shared`.
+
+To try it on a phone, install Expo Go, put the phone on the same network as this computer, then:
+
+```bash
+cd mobile
+npm install
+EXPO_PUBLIC_API_URL=http://<this computer's address>:2211 npx expo start --lan
+```
+
+Scan the QR code it prints. The API has to be running with `DEV_LOGIN=1`, because the app only has dev sign-in so far. It doesn't have GitHub sign-in yet, so it can't sign in to a production server.
+
+In dev builds, each scan is sent to the API and printed in its log as `[scan]`, which shows exactly what a real label holds.
 
 Deployment is in [DEPLOY.md](DEPLOY.md).
