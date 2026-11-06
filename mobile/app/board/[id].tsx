@@ -7,10 +7,11 @@ import {
   type PlacementView,
 } from '@uwat/shared';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import * as Device from 'expo-device';
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../src/api';
 import { BoardPreview } from '../../src/BoardPreview';
@@ -38,6 +39,7 @@ export default function CheckScreen() {
   const [closeUp, setCloseUp] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  const [cameraProblem, setCameraProblem] = useState<string | null>(null);
   const last = useRef({ code: '', at: 0 });
   // Left uncontrolled on purpose: Bluetooth scanners type faster than React can re-render,
   // and setting the value on each key scrambles the order of the characters.
@@ -158,7 +160,11 @@ export default function CheckScreen() {
       </View>
 
       <View style={styles.camera}>
-        {permission?.granted ? (
+        {!Device.isDevice ? (
+          <View style={styles.centre}>
+            <Text style={styles.cameraNote}>The simulator has no camera. Open this on a phone to scan, or type a part number below.</Text>
+          </View>
+        ) : permission?.granted ? (
           <>
             <CameraView
               style={StyleSheet.absoluteFill}
@@ -168,6 +174,7 @@ export default function CheckScreen() {
               zoom={closeUp ? CLOSE_UP_ZOOM : 0}
               barcodeScannerSettings={{ barcodeTypes: ['datamatrix', 'qr', 'code128'] }}
               onBarcodeScanned={onBarcode}
+              onMountError={({ message }) => setCameraProblem(message)}
             />
             <View style={styles.reticle} pointerEvents="none" />
             <View style={styles.cameraTools}>
@@ -178,12 +185,22 @@ export default function CheckScreen() {
                 <Text style={[styles.toolText, closeUp && styles.toolTextOn]}>Zoom</Text>
               </Pressable>
             </View>
+            {cameraProblem ? <Text style={styles.cameraProblem}>{cameraProblem}</Text> : null}
           </>
         ) : (
           <View style={styles.centre}>
-            <Text style={styles.note}>The camera reads the barcode on a bag.</Text>
-            <Pressable style={styles.button} onPress={() => void requestPermission()} accessibilityRole="button">
-              <Text style={styles.buttonText}>Turn on camera</Text>
+            <Text style={styles.cameraNote}>
+              {permission && !permission.canAskAgain
+                ? 'Camera access is off for this app. Turn it on in Settings.'
+                : 'The camera reads the barcode on a bag.'}
+            </Text>
+            <Pressable
+              style={styles.button}
+              // iOS only asks once. After a "Don't Allow", Settings is the only way back.
+              onPress={() => void (permission && !permission.canAskAgain ? Linking.openSettings() : requestPermission())}
+              accessibilityRole="button"
+            >
+              <Text style={styles.buttonText}>{permission && !permission.canAskAgain ? 'Open Settings' : 'Turn on camera'}</Text>
             </Pressable>
           </View>
         )}
@@ -262,7 +279,18 @@ const styles = StyleSheet.create({
   toolOn: { backgroundColor: colours.gold },
   toolText: { color: colours.white, fontFamily: fonts.medium, fontSize: 14 },
   toolTextOn: { color: colours.ink },
-  note: { color: colours.muted, fontFamily: fonts.body, fontSize: 14 },
+  cameraNote: { paddingHorizontal: 28, color: colours.muted, fontFamily: fonts.body, fontSize: 15, textAlign: 'center' },
+  cameraProblem: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
+    padding: 6,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    color: colours.danger,
+    fontFamily: fonts.body,
+    fontSize: 13,
+  },
   button: { paddingHorizontal: 18, paddingVertical: 11, backgroundColor: colours.gold },
   buttonText: { color: colours.ink, fontFamily: fonts.bold, fontSize: 15 },
   input: {
