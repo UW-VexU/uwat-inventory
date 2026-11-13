@@ -40,6 +40,10 @@ export default function CheckScreen() {
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraProblem, setCameraProblem] = useState<string | null>(null);
+  // A label also carries an order barcode. The camera reads it alongside the square code,
+  // so it only earns a passing hint, never a result that would cover the real one.
+  const [otherCodeSeen, setOtherCodeSeen] = useState(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const last = useRef({ code: '', at: 0 });
   // Left uncontrolled on purpose: Bluetooth scanners type faster than React can re-render,
   // and setting the value on each key scrambles the order of the characters.
@@ -54,6 +58,13 @@ export default function CheckScreen() {
       .catch((error: Error) => setProblem(error.message));
   }, [id]);
 
+  useEffect(
+    () => () => {
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+    },
+    [],
+  );
+
   const placements = useMemo<readonly PlacementView[]>(() => detail?.placements ?? [], [detail]);
   const lines = useMemo(() => boardLines(placements), [placements]);
   const foundCount = lines.filter((line) => found.has(line.key)).length;
@@ -66,8 +77,15 @@ export default function CheckScreen() {
   const lit = useMemo(() => (verdict && verdict.kind !== 'not-here' ? verdict.line.refs : []), [verdict]);
 
   const runScan = useCallback(
-    (raw: string) => {
+    (raw: string, fromCamera: boolean) => {
       const judged = judgeScan(raw, placements);
+      if (!judged && fromCamera) {
+        logScan(raw, 'ignored');
+        setOtherCodeSeen(true);
+        if (hintTimer.current) clearTimeout(hintTimer.current);
+        hintTimer.current = setTimeout(() => setOtherCodeSeen(false), REPEAT_HOLD_MS);
+        return;
+      }
       if (!judged) {
         setOutcome({ kind: 'unreadable', raw });
         logScan(raw, 'unreadable');
@@ -112,7 +130,7 @@ export default function CheckScreen() {
       const now = Date.now();
       if (data === last.current.code && now - last.current.at < REPEAT_HOLD_MS) return;
       last.current = { code: data, at: now };
-      runScan(data);
+      runScan(data, true);
     },
     [runScan],
   );
@@ -122,7 +140,7 @@ export default function CheckScreen() {
     if (!text) return;
     typed.current = '';
     setEntry((count) => count + 1);
-    runScan(text);
+    runScan(text, false);
   };
 
   if (problem) {
@@ -186,6 +204,11 @@ export default function CheckScreen() {
               </Pressable>
             </View>
             {cameraProblem ? <Text style={styles.cameraProblem}>{cameraProblem}</Text> : null}
+            {otherCodeSeen ? (
+              <Text style={styles.cameraHint} accessibilityLiveRegion="polite">
+                Wrong barcode. Aim at the small square code.
+              </Text>
+            ) : null}
           </>
         ) : (
           <View style={styles.centre}>
@@ -289,6 +312,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.75)',
     color: colours.danger,
     fontFamily: fonts.body,
+    fontSize: 13,
+  },
+  cameraHint: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    maxWidth: '55%',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    color: colours.white,
+    fontFamily: fonts.medium,
     fontSize: 13,
   },
   button: { paddingHorizontal: 18, paddingVertical: 11, backgroundColor: colours.gold },
