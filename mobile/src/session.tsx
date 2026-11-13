@@ -44,7 +44,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    await api('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
+    // Don't wait on the server: when it's unreachable, signing out is how you change it.
+    void api('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     await SecureStore.deleteItemAsync('token');
     connect(server, null);
     setSignedIn(false);

@@ -15,10 +15,16 @@ export function connect(nextServer: string, nextToken: string | null) {
   token = nextToken;
 }
 
+/** A server on another network never answers, and iOS would otherwise wait about a minute. */
+const TIMEOUT_MS = 10_000;
+
 async function send(path: string, method: string, body?: unknown): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     return await fetch(`${server}${path}`, {
       method,
+      signal: controller.signal,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
@@ -27,6 +33,8 @@ async function send(path: string, method: string, body?: unknown): Promise<Respo
     });
   } catch {
     throw new ApiFailure(0, `Can't reach ${server}. Check the phone and server are on the same network.`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
