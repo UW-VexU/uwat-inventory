@@ -8,7 +8,13 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ca.uwvexu.inventory"
+      "bundleIdentifier": "ca.uwvexu.inventory",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Connects to the team's inventory server on this network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "package": "ca.uwvexu.inventory",
