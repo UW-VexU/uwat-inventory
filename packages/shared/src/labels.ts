@@ -10,9 +10,23 @@ type Fields = Partial<Record<Identifier, string>>;
 /**
  * Some phone scanners drop the control characters, which leaves one run of text.
  * DigiKey always writes the fields in this order, so they can still be recovered.
+ * The [)>06 header is optional because some decoders leave it out too.
  */
 const UNSEPARATED =
-  /^\[\)>06P(.*?)1P(.*?)30P(.*?-ND|.*?)K(.*?)1K(\d*)10K(\d*)9D(\d*)1T(.*?)11K(\d*)4L([A-Z]{0,2})Q(\d+)(?:11Z|$)/;
+  /^(?:\[\)>)?(?:06)?P(.*?)1P(.*?)30P(.*?-ND|.*?)K(.*?)1K(\d*)10K(\d*)9D(\d*)1T(.*?)11K(\d*)4L([A-Z]{0,2})Q(\d+)(?:11Z|$)/;
+
+/**
+ * Newer labels leave out 30P, so the maker's number runs straight into K, the customer PO.
+ * Greedy, because maker numbers often hold a K themselves (RC0603FR-1310KL). The cost is that
+ * a K inside the PO gets read as part of the maker's number: with the separators gone, the
+ * two can't be told apart.
+ */
+const UNSEPARATED_WITHOUT_DIGIKEY_NUMBER =
+  /^(?:\[\)>)?(?:06)?P(.*?)1P(.*)K(.*?)1K(\d*)10K(\d*)9D(\d*)1T(.*?)11K(\d*)4L([A-Z]{0,2})Q(\d+)(?:11Z|$)/;
+
+/** How online decoders and label tools write the separators out as text. */
+const SEPARATOR_NAMES: Record<string, string> = { GS, RS, EOT };
+const SEPARATOR_TEXT = /<(?:GS|RS|EOT)>|\{(?:GS|RS|EOT)\}|\[(?:GS|RS|EOT)\]/gi;
 
 export interface BagLabel {
   partNumber: string | null;
@@ -24,14 +38,17 @@ export interface BagLabel {
 
 /**
  * Barcode readers don't agree on how to hand back a label. Camera decoders can swap control
- * characters for their printable pictures (␝ for GS, ␠ for a space), and some USB scanners
- * start with a code naming the barcode type, like ]d2. Undo both so they all parse the same.
+ * characters for their printable pictures (␝ for GS, ␠ for a space), online decoders write
+ * them as <GS>, and some USB scanners start with a code naming the barcode type, like ]d2.
+ * Undo all of them so they parse the same.
  */
 function normaliseScan(raw: string): string {
   return raw
+    .trim()
     .replace(/^\]d\d/, '')
     .replace(/[\u2400-\u241f]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0x2400))
-    .replaceAll('\u2420', ' ');
+    .replaceAll('\u2420', ' ')
+    .replace(SEPARATOR_TEXT, (text: string) => SEPARATOR_NAMES[text.slice(1, -1).toUpperCase()] ?? text);
 }
 
 function clean(value: string | undefined): string | null {
@@ -52,25 +69,25 @@ function splitFields(raw: string): Fields | null {
 }
 
 function recoverFields(raw: string): Fields | null {
-  const match = UNSEPARATED.exec(raw.replace(/[\u0000-\u001f]/g, ''));
-  if (!match) return null;
-  return {
-    P: match[1],
-    '1P': match[2],
-    '30P': match[3],
-    K: match[4],
-    '1K': match[5],
-    '10K': match[6],
-    Q: match[11],
-  };
+  const text = raw.replace(/[\u0000-\u001f]/g, '');
+  const match = UNSEPARATED.exec(text);
+  if (match) {
+    return { P: match[1], '1P': match[2], '30P': match[3], K: match[4], '1K': match[5], '10K': match[6], Q: match[11] };
+  }
+  const short = UNSEPARATED_WITHOUT_DIGIKEY_NUMBER.exec(text);
+  if (short) {
+    return { P: short[1], '1P': short[2], K: short[3], '1K': short[4], '10K': short[5], Q: short[10] };
+  }
+  return null;
 }
 
 /** Reads the 2D barcode on a distributor bag (ISO/IEC 15434). Returns null if it isn't one. */
 export function parseBagBarcode(scanned: string): BagLabel | null {
   const raw = normaliseScan(scanned);
-  if (!raw.startsWith('[)>')) return null;
   const fields = raw.includes(GS) ? splitFields(raw) : recoverFields(raw);
   if (!fields) return null;
+  // Without the [)> header, only trust it if it reads like a whole label, not a stray code.
+  if (!raw.startsWith('[)>') && Object.keys(fields).length < 4) return null;
 
   // P is the customer reference, but DigiKey fills it with its own part number when blank.
   const customerField = clean(fields.P);

@@ -78,14 +78,40 @@ describe('parseBagBarcode', () => {
     });
   });
 
-  it('ignores the code some USB scanners put at the front', () => {
-    expect(parseBagBarcode(`]d2${encode(WITH_CUST_REF)}`)?.partNumber).toBe('732-8660-1-ND');
+  it('ignores the code some USB scanners put at the front, and the line ending at the back', () => {
+    expect(parseBagBarcode(`]d2${encode(WITH_CUST_REF)}\r\n`)?.partNumber).toBe('732-8660-1-ND');
+  });
+
+  // A Stella Nova bag: the team's DigiKey upload puts the designators in the customer reference.
+  const STELLA = ['PR3, R5, R6, R9 to R14', '1PRC0603FR-1310KL', '30P13-RC0603FR-1310KLCT-ND', 'K', '1K86761783', '10K104669300', '9D2444', '1TABC123', '11K1', '4LCN', 'Q50', '11ZPICK', '12Z5728615', '13Z999999', '20Z0000000'];
+  const STELLA_NEWER = STELLA.filter((field) => !field.startsWith('30P'));
+
+  it('reads separators that online decoders write out as text', () => {
+    const want = parseBagBarcode(encode(STELLA));
+    expect(want?.mfrPartNumber).toBe('RC0603FR-1310KL');
+    expect(parseBagBarcode(`[)><RS>06<GS>${STELLA.join('<GS>')}<RS><EOT>`)).toEqual(want);
+    expect(parseBagBarcode(`[)>{rs}06{gs}${STELLA.join('{gs}')}{rs}{eot}`)).toEqual(want);
+  });
+
+  it('reads a label whose decoder left off the [)>06 header', () => {
+    expect(parseBagBarcode(STELLA.join(GS))).toEqual(parseBagBarcode(encode(STELLA)));
+    expect(parseBagBarcode(`06${GS}${STELLA.join(GS)}`)).toEqual(parseBagBarcode(encode(STELLA)));
+    expect(parseBagBarcode(STELLA.join(''))).toEqual(parseBagBarcode(encode(STELLA)));
+  });
+
+  it('recovers a newer label with the separators stripped, even with a K in the maker number', () => {
+    expect(parseBagBarcode(flatten(STELLA_NEWER))).toEqual(parseBagBarcode(encode(STELLA_NEWER)));
+    expect(parseBagBarcode(flatten(STELLA_NEWER))?.mfrPartNumber).toBe('RC0603FR-1310KL');
   });
 
   it('rejects things that are not bag labels', () => {
     expect(parseBagBarcode('https://example.com')).toBeNull();
     expect(parseBagBarcode('[)>')).toBeNull();
     expect(parseBagBarcode(encode(['K123', 'Q5', '11ZPICK']))).toBeNull();
+    expect(parseBagBarcode('022582494')).toBeNull();
+    // A GS1 code also uses GS between fields, but has no header and none of the label's fields.
+    expect(parseBagBarcode(`0109501101530003${GS}17140704${GS}10AB-123`)).toBeNull();
+    expect(parseBagBarcode(`1PRC0603FR-1310KL${GS}Q50${GS}C1`)).toBeNull();
   });
 });
 
