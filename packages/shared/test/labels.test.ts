@@ -104,8 +104,34 @@ describe('parseBagBarcode', () => {
     expect(parseBagBarcode(flatten(STELLA_NEWER))?.mfrPartNumber).toBe('RC0603FR-1310KL');
   });
 
+  // Decoded by Apple Vision from photos of the team's own bags (DigiKey order 102610242, Oct 2026).
+  const REAL_INA226 =
+    '[)>\u001e06\u001dPU2, U3, U5\u001d1PINA226AIDGSR\u001d30P296-29034-1-ND\u001dK3000053812\u001d1K102610242\u001d10K135516409\u001d9D2627+5\u001d1T6046221ASH\u001d11K1\u001d4LUS\u001dQ12\u001d11ZPICK\u001d12Z2687118\u001d13Z999999\u001d20Z0000000000000000000000000000000000000000000000000000000000000000000000000000\u001e\u0004';
+  const REAL_SHUNT =
+    '[)>\u001e06\u001dPR12\u001d1PWSL1206R0500FEA\u001d30PWSLC-.05CT-ND\u001dK3000053812\u001d1K102610242\u001d10K135516409\u001d9D2622\u001d1TJZ26120034\u001d11K1\u001d4LMX\u001dQ12\u001d11ZPICK\u001d12Z713427\u001d13Z999999\u001d20Z000000000000000000000000000000000000000000000000000000000000000000000000000000000000\u001e\u0004';
+
+  it('reads real labels from the team bags', () => {
+    expect(parseBagBarcode(REAL_INA226)).toEqual({
+      partNumber: '296-29034-1-ND',
+      mfrPartNumber: 'INA226AIDGSR',
+      quantity: 12,
+      project: 'U2, U3, U5',
+      labelKey: '296-29034-1-ND|135516409|12',
+    });
+    expect(parseBagBarcode(REAL_SHUNT)).toMatchObject({ partNumber: 'WSLC-.05CT-ND', mfrPartNumber: 'WSL1206R0500FEA', quantity: 12, project: 'R12' });
+  });
+
+  it('reads the real labels with the separators stripped, including a date code like 2627+5', () => {
+    for (const real of [REAL_INA226, REAL_SHUNT]) {
+      expect(parseBagBarcode(real.replace(/[\u0000-\u001f]/g, ''))).toEqual(parseBagBarcode(real));
+    }
+  });
+
   it('rejects things that are not bag labels', () => {
     expect(parseBagBarcode('https://example.com')).toBeNull();
+    // The two long barcodes on a real bag: the shipping tote (oLPN) and a label number.
+    expect(parseBagBarcode('022582493')).toBeNull();
+    expect(parseBagBarcode('446396465')).toBeNull();
     expect(parseBagBarcode('[)>')).toBeNull();
     expect(parseBagBarcode(encode(['K123', 'Q5', '11ZPICK']))).toBeNull();
     expect(parseBagBarcode('022582494')).toBeNull();

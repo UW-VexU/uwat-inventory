@@ -13,7 +13,7 @@ type Fields = Partial<Record<Identifier, string>>;
  * The [)>06 header is optional because some decoders leave it out too.
  */
 const UNSEPARATED =
-  /^(?:\[\)>)?(?:06)?P(.*?)1P(.*?)30P(.*?-ND|.*?)K(.*?)1K(\d*)10K(\d*)9D(\d*)1T(.*?)11K(\d*)4L([A-Z]{0,2})Q(\d+)(?:11Z|$)/;
+  /^(?:\[\)>)?(?:06)?P(.*?)1P(.*?)30P(.*?-ND|.*?)K(.*?)1K(\d*)10K(\d*)9D(.*?)1T(.*?)11K(\d*)4L([A-Z]{0,2})Q(\d+)(?:11Z|$)/;
 
 /**
  * Newer labels leave out 30P, so the maker's number runs straight into K, the customer PO.
@@ -22,7 +22,7 @@ const UNSEPARATED =
  * two can't be told apart.
  */
 const UNSEPARATED_WITHOUT_DIGIKEY_NUMBER =
-  /^(?:\[\)>)?(?:06)?P(.*?)1P(.*)K(.*?)1K(\d*)10K(\d*)9D(\d*)1T(.*?)11K(\d*)4L([A-Z]{0,2})Q(\d+)(?:11Z|$)/;
+  /^(?:\[\)>)?(?:06)?P(.*?)1P(.*)K(.*?)1K(\d*)10K(\d*)9D(.*?)1T(.*?)11K(\d*)4L([A-Z]{0,2})Q(\d+)(?:11Z|$)/;
 
 /** How online decoders and label tools write the separators out as text. */
 const SEPARATOR_NAMES: Record<string, string> = { GS, RS, EOT };
