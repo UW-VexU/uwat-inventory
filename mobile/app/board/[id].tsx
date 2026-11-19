@@ -6,13 +6,14 @@ import {
   type BoardUse,
   type PlacementView,
 } from '@uwat/shared';
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Device from 'expo-device';
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { canScanPhotos, LabelScannerView, liveScanSupported, scanPhoto, type ScannedCode } from '../../modules/label-scanner';
 import { api } from '../../src/api';
 import { BoardPreview } from '../../src/BoardPreview';
 import { Checklist } from '../../src/Checklist';
@@ -43,6 +44,8 @@ export default function CheckScreen() {
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraProblem, setCameraProblem] = useState<string | null>(null);
+  // Apple's own scanner where the phone has it: it reads small square codes far better.
+  const [live, setLive] = useState<boolean | null>(null);
   // A label also carries an order barcode. The camera reads it alongside the square code,
   // so it only earns a passing hint, never a result that would cover the real one.
   const [otherCodeSeen, setOtherCodeSeen] = useState(false);
@@ -67,6 +70,12 @@ export default function CheckScreen() {
     },
     [],
   );
+
+  useEffect(() => {
+    liveScanSupported()
+      .then(setLive)
+      .catch(() => setLive(false));
+  }, []);
 
   const placements = useMemo<readonly PlacementView[]>(() => detail?.placements ?? [], [detail]);
   const lines = useMemo(() => boardLines(placements), [placements]);
@@ -129,7 +138,7 @@ export default function CheckScreen() {
   );
 
   const onBarcode = useCallback(
-    ({ data, type }: BarcodeScanningResult) => {
+    ({ data, type }: ScannedCode) => {
       const now = Date.now();
       if (data === last.current.code && now - last.current.at < REPEAT_HOLD_MS) return;
       last.current = { code: data, at: now };
@@ -138,6 +147,26 @@ export default function CheckScreen() {
     },
     [runScan],
   );
+
+  const onPhoto = async () => {
+    let codes: ScannedCode[] | null;
+    try {
+      codes = await scanPhoto();
+    } catch (error) {
+      setOutcome({ kind: 'no-code', reason: (error as Error).message });
+      return;
+    }
+    if (codes === null) return;
+    for (const code of codes) logScan(code.data, `photo read ${code.type}`);
+    // A label photo can catch a box QR too. Show the code that means something here.
+    const best = codes.find((code) => judgeScan(code.data, placements)) ?? codes[0];
+    if (!best) {
+      setOutcome({ kind: 'no-code', reason: null });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    runScan(best.data, false);
+  };
 
   const submitTyped = () => {
     const text = typed.current.trim();
@@ -184,24 +213,44 @@ export default function CheckScreen() {
       <View style={styles.camera}>
         {!Device.isDevice ? (
           <View style={styles.centre}>
-            <Text style={styles.cameraNote}>The simulator has no camera. Open this on a phone to scan, or type a part number below.</Text>
+            <Text style={styles.cameraNote}>The simulator has no camera. Scan a photo of a label, or type a part number below.</Text>
+            {canScanPhotos ? (
+              <Pressable style={styles.button} onPress={() => void onPhoto()} accessibilityRole="button">
+                <Text style={styles.buttonText}>Scan a photo</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : permission?.granted ? (
           <>
-            <CameraView
-              style={StyleSheet.absoluteFill}
-              facing="back"
-              autofocus="on"
-              enableTorch={torch}
-              zoom={closeUp ? CLOSE_UP_ZOOM : 0}
-              // No 1D codes: DigiKey's two long barcodes hold a shipping tote and a label number, never
-              // the part, and the camera finds them before the square code. QR is for box labels.
-              barcodeScannerSettings={{ barcodeTypes: ['datamatrix', 'qr'] }}
-              onBarcodeScanned={onBarcode}
-              onMountError={({ message }) => setCameraProblem(message)}
-            />
-            <View style={styles.reticle} pointerEvents="none" />
+            {live === null ? null : live && LabelScannerView ? (
+              <LabelScannerView
+                style={StyleSheet.absoluteFill}
+                torch={torch}
+                zoomed={closeUp}
+                onCode={({ nativeEvent }) => onBarcode(nativeEvent)}
+                onProblem={({ nativeEvent }) => setCameraProblem(nativeEvent.message)}
+              />
+            ) : (
+              <CameraView
+                style={StyleSheet.absoluteFill}
+                facing="back"
+                autofocus="on"
+                enableTorch={torch}
+                zoom={closeUp ? CLOSE_UP_ZOOM : 0}
+                // No 1D codes: DigiKey's two long barcodes hold a shipping tote and a label number, never
+                // the part, and the camera finds them before the square code. QR is for box labels.
+                barcodeScannerSettings={{ barcodeTypes: ['datamatrix', 'qr'] }}
+                onBarcodeScanned={({ data, type }) => onBarcode({ data, type })}
+                onMountError={({ message }) => setCameraProblem(message)}
+              />
+            )}
+            {live ? null : <View style={styles.reticle} pointerEvents="none" />}
             <View style={styles.cameraTools}>
+              {canScanPhotos ? (
+                <Pressable style={styles.tool} onPress={() => void onPhoto()} accessibilityRole="button" accessibilityLabel="Scan a photo">
+                  <Text style={styles.toolText}>Photo</Text>
+                </Pressable>
+              ) : null}
               <Pressable style={[styles.tool, torch && styles.toolOn]} onPress={() => setTorch((on) => !on)} accessibilityRole="button">
                 <Text style={[styles.toolText, torch && styles.toolTextOn]}>Light</Text>
               </Pressable>
@@ -324,7 +373,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 8,
     bottom: 8,
-    maxWidth: '55%',
+    maxWidth: '45%',
     paddingHorizontal: 10,
     paddingVertical: 7,
     backgroundColor: 'rgba(0,0,0,0.75)',

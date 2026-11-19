@@ -4,7 +4,9 @@ import { colours, fonts } from './theme';
 
 export type ScanOutcome =
   | { kind: 'judged'; code: string; quantity: number | null; verdict: ScanVerdict; otherBoards: BoardUse[] | null }
-  | { kind: 'unreadable'; raw: string };
+  | { kind: 'unreadable'; raw: string }
+  // A photo with no square code in it, or one the phone couldn't open.
+  | { kind: 'no-code'; reason: string | null };
 
 const count = (value: number, word: string) => `${value} ${word}${value === 1 ? '' : 's'}`;
 
@@ -33,6 +35,15 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
   }
 
   const body = (() => {
+    if (outcome.kind === 'no-code') {
+      return (
+        <Card tone={colours.white} title="No label code in that photo">
+          <Text style={styles.note}>
+            {outcome.reason ?? 'Take it again with the square code flat, sharp and filling more of the picture.'}
+          </Text>
+        </Card>
+      );
+    }
     if (outcome.kind === 'unreadable') {
       return (
         <Card tone={colours.white} title="Not a parts label">
