@@ -185,7 +185,8 @@ async function loadDetector(): Promise<Detector> {
       locateFile: (path: string, prefix: string) => (path.endsWith('.wasm') ? `/zxing/${path}` : `${prefix}${path}`),
     },
   });
-  return new BarcodeDetector({ formats: ['data_matrix', 'qr_code', 'code_128'] }) as unknown as Detector;
+  // No 1D codes: DigiKey's long barcodes never hold the part, and they'd crowd out the square code.
+  return new BarcodeDetector({ formats: ['data_matrix', 'qr_code'] }) as unknown as Detector;
 }
 
 export function CameraScanner({ onScan, onClose }: { onScan: (code: string) => boolean; onClose: () => void }) {

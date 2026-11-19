@@ -190,7 +190,9 @@ export default function CheckScreen() {
               autofocus="on"
               enableTorch={torch}
               zoom={closeUp ? CLOSE_UP_ZOOM : 0}
-              barcodeScannerSettings={{ barcodeTypes: ['datamatrix', 'qr', 'code128'] }}
+              // No 1D codes: DigiKey's two long barcodes hold a shipping tote and a label number, never
+              // the part, and the camera finds them before the square code. QR is for box labels.
+              barcodeScannerSettings={{ barcodeTypes: ['datamatrix', 'qr'] }}
               onBarcodeScanned={onBarcode}
               onMountError={({ message }) => setCameraProblem(message)}
             />
