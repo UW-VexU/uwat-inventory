@@ -24,9 +24,12 @@ import { VerdictCard, type ScanOutcome } from '../../src/VerdictCard';
 const REPEAT_HOLD_MS = 2500;
 const CLOSE_UP_ZOOM = 0.2;
 
+/** Test builds set EXPO_PUBLIC_SCAN_LOG=1 to see what a phone camera reads, without Metro. */
+const SCAN_LOG = __DEV__ || process.env.EXPO_PUBLIC_SCAN_LOG === '1';
+
 function logScan(raw: string, result: string) {
   // Only used while testing. It shows what a real label holds, straight from the server log.
-  if (__DEV__) void api('/api/debug/scan', { method: 'POST', body: { raw, result } }).catch(() => undefined);
+  if (SCAN_LOG) void api('/api/debug/scan', { method: 'POST', body: { raw, result } }).catch(() => undefined);
 }
 
 export default function CheckScreen() {
@@ -126,10 +129,11 @@ export default function CheckScreen() {
   );
 
   const onBarcode = useCallback(
-    ({ data }: BarcodeScanningResult) => {
+    ({ data, type }: BarcodeScanningResult) => {
       const now = Date.now();
       if (data === last.current.code && now - last.current.at < REPEAT_HOLD_MS) return;
       last.current = { code: data, at: now };
+      logScan(data, `camera read ${type}`);
       runScan(data, true);
     },
     [runScan],
