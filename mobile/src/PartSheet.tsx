@@ -2,7 +2,7 @@ import type { BagSummary, BoxSummary, PartSummary } from '@uwat/shared';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api, newRequestId } from './api';
+import { api, ApiFailure, newRequestId } from './api';
 import { colours, fonts } from './theme';
 
 type Mode = 'take' | 'add' | 'count';
@@ -70,7 +70,14 @@ export function PartSheet({ partId, onClose, onChanged }: Props) {
             </Text>
             {part.bags.length === 0 ? <Text style={styles.note}>No bags left. Scan one to add it.</Text> : null}
             {part.bags.map((bag, index) => (
-              <BagEditor key={bag.id} bag={bag} title={part.bags.length > 1 ? `Bag ${index + 1}` : 'Bag'} boxes={boxes} onSaved={saved} />
+              <BagEditor
+                key={bag.id}
+                partId={part.id}
+                bag={bag}
+                title={part.bags.length > 1 ? `Bag ${index + 1}` : 'Bag'}
+                boxes={boxes}
+                onSaved={saved}
+              />
             ))}
           </ScrollView>
         ) : null}
@@ -80,11 +87,13 @@ export function PartSheet({ partId, onClose, onChanged }: Props) {
 }
 
 function BagEditor({
+  partId,
   bag,
   title,
   boxes,
   onSaved,
 }: {
+  partId: string;
   bag: BagSummary;
   title: string;
   boxes: readonly BoxSummary[];
@@ -104,6 +113,15 @@ function BagEditor({
       onSaved(result.part);
       return true;
     } catch (error) {
+      // A second tap on Remove after the first answer got lost: the bag is already gone.
+      if (method === 'DELETE' && error instanceof ApiFailure && error.details.code === 'bag_removed') {
+        try {
+          onSaved((await api<{ part: PartSummary }>(`/api/parts/${partId}`)).part);
+          return true;
+        } catch {
+          // Fall through and show the server's message.
+        }
+      }
       setProblem((error as Error).message);
       return false;
     } finally {
