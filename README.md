@@ -127,4 +127,16 @@ Scan the QR code it prints. The API has to be running with `DEV_LOGIN=1`, becaus
 
 In dev builds, each scan is sent to the API and printed in its log as `[scan]`, which shows exactly what a real label holds.
 
+### Using a laptop as the server from anywhere
+
+The phone and the computer running the API don't have to share a network. [Tailscale](https://tailscale.com) joins them into a private network that works over any Wi-Fi or cellular connection, and gives the computer an address that never changes:
+
+1. Install Tailscale on the computer and on each phone, and sign in to the same account. To let teammates in, share the computer with them from the Tailscale admin page.
+2. Find the computer's name with `tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")'`. It looks like `my-laptop.tail1234.ts.net`.
+3. In the app, set **Server** to that name with the API port: `http://my-laptop.tail1234.ts.net:2211`.
+
+Use the name, not the `100.x.x.x` address. iOS blocks plain HTTP to those addresses, and the app makes an exception only for `*.ts.net` names. Plain HTTP is fine there because Tailscale already encrypts everything between your devices. The tailnet is private, so the dev sign-in button is only open to people you've let in. A public tunnel would expose it to anyone with the link.
+
+The app only works while the computer is awake and running the API. To build the app with this address filled in, set `EXPO_PUBLIC_API_URL` to it when building.
+
 Deployment is in [DEPLOY.md](DEPLOY.md).
