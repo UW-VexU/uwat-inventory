@@ -1744,6 +1744,22 @@ kbd {
   color: var(--danger);
 }
 
+.scan-quantity {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.scan-quantity input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--ink-control);
+  color: var(--white);
+  font: inherit;
+}
+
 .scan-actions {
   display: flex;
   flex-wrap: wrap;

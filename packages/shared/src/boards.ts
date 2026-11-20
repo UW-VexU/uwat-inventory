@@ -424,27 +424,50 @@ export function checkBag(bag: ScannedBag, spots: readonly PlacementView[]): Scan
   return empty ? { kind: 'leave-empty', line: empty } : { kind: 'not-here' };
 }
 
+/** The numbers to file a typed part under, since typing one number doesn't say which kind it is. */
+export interface TypedPart {
+  partNumber: string | null;
+  mfrPartNumber: string | null;
+}
+
 export interface ScanJudgement {
   /** The best name we have for what was scanned. */
   code: string;
   quantity: number | null;
   bag: ScannedBag;
   verdict: ScanVerdict;
+  /** Set when a number was typed rather than read off a label. It has no quantity, so ask for one. */
+  typed: TypedPart | null;
 }
 
-/** Takes whatever a scanner or keyboard produced. Returns null if it wasn't a part code at all. */
-export function judgeScan(raw: string, spots: readonly PlacementView[]): ScanJudgement | null {
+/** Letters and digits with the odd dash or dot, like AP63301WU-7 or RC0603FR-0710KL. Not words or values like 10k. */
+export function looksLikePartNumber(text: string): boolean {
+  return /^(?=.*\d)[A-Z0-9][A-Z0-9.+\-/#,_]{3,39}$/i.test(text.trim());
+}
+
+/**
+ * Takes whatever a scanner or keyboard produced. Returns null if it wasn't a part code at all.
+ * With `typed`, anything shaped like a part number counts, so it can be added even when no board uses it.
+ */
+export function judgeScan(raw: string, spots: readonly PlacementView[], { typed: typing = false } = {}): ScanJudgement | null {
   const read = classifyScan(raw);
-  const typed = raw.trim();
-  const bag: ScannedBag = read.kind === 'bag' ? read.label : { partNumber: typed, mfrPartNumber: typed };
+  const text = raw.trim();
+  const bag: ScannedBag = read.kind === 'bag' ? read.label : { partNumber: text, mfrPartNumber: text };
   const verdict = checkBag(bag, spots);
-  if (read.kind !== 'bag' && verdict.kind === 'not-here' && !/-ND$/i.test(typed)) return null;
-  return {
-    code: bag.partNumber ?? bag.mfrPartNumber ?? typed,
-    quantity: read.kind === 'bag' ? read.label.quantity : null,
-    bag,
-    verdict,
-  };
+  if (read.kind === 'bag') {
+    return { code: bag.partNumber ?? bag.mfrPartNumber ?? text, quantity: read.label.quantity, bag, verdict, typed: null };
+  }
+
+  const digikey = /-ND$/i.test(text);
+  if (verdict.kind === 'not-here' && !digikey && !(typing && looksLikePartNumber(text))) return null;
+  // A board's BOM line knows both numbers. Otherwise go by the shape: DigiKey numbers end in -ND.
+  const filed: TypedPart =
+    verdict.kind === 'not-here'
+      ? digikey
+        ? { partNumber: text, mfrPartNumber: null }
+        : { partNumber: null, mfrPartNumber: text }
+      : { partNumber: verdict.line.partNumber, mfrPartNumber: verdict.line.mfrPartNumber };
+  return { code: text, quantity: null, bag, verdict, typed: filed };
 }
 
 /** Everything that has to be found to build this board, one line per distinct part. */

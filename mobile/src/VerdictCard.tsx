@@ -1,5 +1,6 @@
-import { formatRefs, type BoardUse, type ScanVerdict, type StockNote } from '@uwat/shared';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { formatRefs, type BoardUse, type ScanVerdict, type StockNote, type TypedPart } from '@uwat/shared';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BagHome } from './BagHome';
 import { colours, fonts } from './theme';
 
@@ -11,6 +12,8 @@ export type ScanOutcome =
       verdict: ScanVerdict;
       otherBoards: BoardUse[] | null;
       stock: StockNote | null;
+      /** Typed rather than scanned, so it waits for a quantity before going into stock. */
+      typed: TypedPart | null;
     }
   | { kind: 'unreadable'; raw: string }
   // A photo with no square code in it, or one the phone couldn't open.
@@ -29,6 +32,7 @@ function Card({
   title,
   stock = null,
   onStockChanged,
+  prompt = null,
   actions = null,
   children,
 }: {
@@ -36,6 +40,7 @@ function Card({
   title: string;
   stock?: StockNote | null;
   onStockChanged?: () => void;
+  prompt?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -46,8 +51,37 @@ function Card({
       <Text style={[styles.title, { color: tone }]}>{title}</Text>
       {children}
       {stock ? <StockLine note={stock} /> : null}
+      {prompt}
       {bag?.partId && bag.bagId ? <BagHome partId={bag.partId} bagId={bag.bagId} onChanged={onStockChanged} /> : null}
       {actions ? <View style={styles.actions}>{actions}</View> : null}
+    </View>
+  );
+}
+
+/** Stands in for the quantity a label would have carried. */
+function QuantityPrompt({ onAdd }: { onAdd: (quantity: number) => void }) {
+  const [text, setText] = useState('');
+  const quantity = /^\d+$/.test(text) && Number(text) > 0 ? Number(text) : null;
+  const add = () => {
+    if (quantity !== null) onAdd(quantity);
+  };
+  return (
+    <View style={styles.prompt}>
+      <TextInput
+        style={styles.promptInput}
+        value={text}
+        onChangeText={(next) => setText(next.replace(/\D/g, ''))}
+        keyboardType="number-pad"
+        placeholder="How many in this bag?"
+        placeholderTextColor={colours.faint}
+        accessibilityLabel="How many in this bag?"
+        returnKeyType="done"
+        onSubmitEditing={add}
+        autoFocus
+      />
+      <Pressable onPress={add} disabled={quantity === null} style={[styles.promptButton, quantity === null && styles.promptOff]} accessibilityRole="button">
+        <Text style={styles.promptButtonText}>Add to stock</Text>
+      </Pressable>
     </View>
   );
 }
@@ -92,11 +126,23 @@ interface Props {
   onEditStock?: (() => void) | null;
   /** After the card files the bag into a box. */
   onStockChanged?: () => void;
+  /** For a typed number: adds it to stock once its quantity is in. */
+  onAddTyped?: ((quantity: number) => void) | null;
 }
 
-export function VerdictCard({ outcome, onClear, placed = null, onTogglePlaced, onEditStock = null, onStockChanged }: Props) {
+export function VerdictCard({
+  outcome,
+  onClear,
+  placed = null,
+  onTogglePlaced,
+  onEditStock = null,
+  onStockChanged,
+  onAddTyped = null,
+}: Props) {
   if (!outcome) return null;
   const editStock = onEditStock ? <Action label="Edit stock" onPress={onEditStock} /> : null;
+  // Keyed by the code, so a new typed number starts with an empty box.
+  const prompt = onAddTyped && outcome.kind === 'judged' ? <QuantityPrompt key={outcome.code} onAdd={onAddTyped} /> : null;
 
   const body = (() => {
     if (outcome.kind === 'no-code') {
@@ -121,7 +167,7 @@ export function VerdictCard({ outcome, onClear, placed = null, onTogglePlaced, o
     const { verdict, code, quantity, stock } = outcome;
     if (verdict.kind === 'not-here') {
       return (
-        <Card tone={colours.danger} title="Not for this board" stock={stock} onStockChanged={onStockChanged} actions={editStock}>
+        <Card tone={colours.danger} title="Not for this board" stock={stock} onStockChanged={onStockChanged} prompt={prompt} actions={editStock}>
           <Text style={styles.spots}>{code}</Text>
           <Text style={styles.note}>{otherBoardText(outcome.otherBoards)}</Text>
         </Card>
@@ -131,7 +177,7 @@ export function VerdictCard({ outcome, onClear, placed = null, onTogglePlaced, o
     const { line } = verdict;
     if (verdict.kind === 'leave-empty') {
       return (
-        <Card tone={colours.white} title="Leave this one off" stock={stock} onStockChanged={onStockChanged} actions={editStock}>
+        <Card tone={colours.white} title="Leave this one off" stock={stock} onStockChanged={onStockChanged} prompt={prompt} actions={editStock}>
           <Text style={styles.value}>{line.value ?? code}</Text>
           <Text style={styles.note}>The BOM says do not populate {formatRefs(line.refs)}.</Text>
         </Card>
@@ -144,6 +190,7 @@ export function VerdictCard({ outcome, onClear, placed = null, onTogglePlaced, o
         title="Goes on this board"
         stock={stock}
         onStockChanged={onStockChanged}
+        prompt={prompt}
         actions={
           <>
             {placed !== null && onTogglePlaced ? (
@@ -185,6 +232,19 @@ const styles = StyleSheet.create({
   note: { color: colours.muted, fontFamily: fonts.body, fontSize: 14 },
   stock: { marginTop: 6, fontFamily: fonts.bold, fontSize: 14 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  prompt: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  promptInput: {
+    flex: 1,
+    height: 40,
+    paddingHorizontal: 10,
+    backgroundColor: colours.control,
+    color: colours.white,
+    fontFamily: fonts.body,
+    fontSize: 15,
+  },
+  promptButton: { justifyContent: 'center', paddingHorizontal: 14, backgroundColor: colours.gold },
+  promptOff: { opacity: 0.4 },
+  promptButtonText: { color: colours.ink, fontFamily: fonts.bold, fontSize: 14 },
   action: { paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: colours.lineStrong },
   actionOn: { borderColor: colours.gold, backgroundColor: colours.gold },
   actionText: { color: colours.white, fontFamily: fonts.medium, fontSize: 14 },

@@ -435,6 +435,27 @@ describe('checkBag', () => {
     expect(judgeScan('10k', spots)).toBeNull();
   });
 
+  it('files a typed number under both numbers from the BOM, and asks for a quantity', () => {
+    const typed = judgeScan('RC0603FR-1310KL', spots);
+    expect(typed).toMatchObject({ quantity: null, verdict: { kind: 'fits' } });
+    // Typed the maker's number, but the BOM line supplies the DigiKey one too.
+    expect(typed?.typed).toEqual({ partNumber: '13-RC0603FR-1310KLCT-ND', mfrPartNumber: 'RC0603FR-1310KL' });
+    const label = `[)>\u001e06\u001dP\u001d1PRC0603FR-1310KL\u001d30P13-RC0603FR-1310KLCT-ND\u001dK\u001d1K1\u001d10K2\u001dQ50\u001d11ZPICK\u001e\u0004`;
+    expect(judgeScan(label, spots)?.typed).toBeNull();
+  });
+
+  it('takes a typed maker number for a part on no board only when asked to', () => {
+    expect(judgeScan('INA226AIDGSR', spots)).toBeNull();
+    expect(judgeScan('INA226AIDGSR', spots, { typed: true })).toMatchObject({
+      verdict: { kind: 'not-here' },
+      typed: { partNumber: null, mfrPartNumber: 'INA226AIDGSR' },
+    });
+    expect(judgeScan('296-29034-1-ND', spots, { typed: true })?.typed).toEqual({ partNumber: '296-29034-1-ND', mfrPartNumber: null });
+    // Values and words still aren't part numbers.
+    expect(judgeScan('10k', spots, { typed: true })).toBeNull();
+    expect(judgeScan('op amp', spots, { typed: true })).toBeNull();
+  });
+
   it('checks a linked part when the spot has no BOM data', () => {
     const linked = line('R1', {
       part: { id: 'p', partNumber: 'X-ND', description: 'RES 1K', total: 5, boxes: [] },

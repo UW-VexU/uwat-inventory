@@ -10,6 +10,7 @@ import {
   type PartSummary,
   type PlacementView,
   type StockNote,
+  type TypedPart,
 } from '@uwat/shared';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Device from 'expo-device';
@@ -113,6 +114,10 @@ export default function CheckScreen() {
   // The line as it is now, since the one judged at scan time doesn't see later ticks.
   const scannedLine = verdict?.kind === 'fits' ? (lines.find((line) => line.key === verdict.line.key) ?? verdict.line) : null;
   const stockNote = outcome?.kind === 'judged' ? outcome.stock : null;
+  // Asked again after a failed add, so it can be retried without typing the number again.
+  const typedPart =
+    outcome?.kind === 'judged' && (!outcome.stock || outcome.stock.state === 'failed') ? outcome.typed : null;
+  const awaitingQuantity = typedPart !== null;
   const scannedPartId =
     (stockNote?.state === 'added' || stockNote?.state === 'already' ? stockNote.partId : null) ?? scannedLine?.partId ?? null;
 
@@ -178,10 +183,30 @@ export default function CheckScreen() {
     return { state: 'adding' };
   }, [load]);
 
+  /** A typed number has no quantity on it, so it's added once someone says how many are in the bag. */
+  const addTyped = useCallback(
+    (code: string, typed: TypedPart, quantity: number) => {
+      const settle = (note: StockNote) =>
+        setOutcome((current) => (current?.kind === 'judged' && current.code === code ? { ...current, stock: note } : current));
+      settle({ state: 'adding' });
+      api<{ part: PartSummary; bagId: string }>('/api/intake', {
+        method: 'POST',
+        body: { ...typed, quantity, requestId: newRequestId() },
+      })
+        .then(({ part, bagId }) => {
+          settle({ state: 'added', total: part.total, partId: part.id, bagId });
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          load();
+        })
+        .catch((error: Error) => settle({ state: 'failed', message: error.message }));
+    },
+    [load],
+  );
+
   const runScan = useCallback(
-    (raw: string, fromCamera: boolean) => {
-      const judged = judgeScan(raw, placements);
-      if (!judged && fromCamera) {
+    (raw: string, source: 'camera' | 'photo' | 'typed') => {
+      const judged = judgeScan(raw, placements, { typed: source === 'typed' });
+      if (!judged && source === 'camera') {
         logScan(raw, 'ignored');
         setOtherCodeSeen(true);
         if (hintTimer.current) clearTimeout(hintTimer.current);
@@ -200,7 +225,7 @@ export default function CheckScreen() {
       const read = classifyScan(raw);
       // The server answers well after this render, so its result lands on this scan's card.
       const stock = read.kind === 'bag' ? addToStock(code, raw, read.label) : null;
-      setOutcome({ kind: 'judged', code, quantity, verdict: judged.verdict, otherBoards: null, stock });
+      setOutcome({ kind: 'judged', code, quantity, verdict: judged.verdict, otherBoards: null, stock, typed: judged.typed });
 
       if (judged.verdict.kind === 'not-here') {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -235,7 +260,7 @@ export default function CheckScreen() {
       if (data === last.current.code && now - last.current.at < REPEAT_HOLD_MS) return;
       last.current = { code: data, at: now };
       logScan(data, `camera read ${type}`);
-      runScan(data, true);
+      runScan(data, 'camera');
     },
     [runScan],
   );
@@ -257,7 +282,7 @@ export default function CheckScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
     }
-    runScan(best.data, false);
+    runScan(best.data, 'photo');
   };
 
   const submitTyped = () => {
@@ -265,7 +290,7 @@ export default function CheckScreen() {
     if (!text) return;
     typed.current = '';
     setEntry((count) => count + 1);
-    runScan(text, false);
+    runScan(text, 'typed');
   };
 
   if (problem) {
@@ -378,7 +403,8 @@ export default function CheckScreen() {
 
       <TextInput
         key={entry}
-        autoFocus={entry > 0}
+        // Ready for the next code, unless a typed one is waiting for its quantity.
+        autoFocus={entry > 0 && !awaitingQuantity}
         style={styles.input}
         onChangeText={(text) => {
           typed.current = text;
@@ -399,6 +425,11 @@ export default function CheckScreen() {
         onTogglePlaced={scannedLine ? () => togglePlaced(scannedLine) : undefined}
         onEditStock={scannedPartId ? () => setSheetPartId(scannedPartId) : null}
         onStockChanged={load}
+        onAddTyped={
+          typedPart && outcome?.kind === 'judged'
+            ? (quantity) => addTyped(outcome.code, typedPart, quantity)
+            : null
+        }
       />
 
       <View style={styles.board}>

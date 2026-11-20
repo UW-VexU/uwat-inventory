@@ -18,6 +18,7 @@ import {
   type PartSummary,
   type PlacementView,
   type StockNote,
+  type TypedPart,
 } from '@uwat/shared';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -116,6 +117,8 @@ export function BoardScreen() {
   const scanVerdict = scan?.verdict;
   const scannedLine =
     scanVerdict?.kind === 'fits' ? (lines.find((line) => line.key === scanVerdict.line.key) ?? scanVerdict.line) : null;
+  // Asked again after a failed add, so it can be retried without typing the number again.
+  const typedPart = scan?.typed && (!scan.stock || scan.stock.state === 'failed') ? scan.typed : null;
   const scannedPartId =
     (scan?.stock?.state === 'added' || scan?.stock?.state === 'already' ? scan.stock.partId : null) ??
     scannedLine?.partId ??
@@ -210,6 +213,26 @@ export function BoardScreen() {
     [applyPart, load],
   );
 
+  /** A typed number has no quantity on it, so it's added once someone says how many are in the bag. */
+  const addTyped = useCallback(
+    async (scanId: number, typed: TypedPart, quantity: number) => {
+      const settle = (note: StockNote) => setScan((current) => (current?.id === scanId ? { ...current, stock: note } : current));
+      settle({ state: 'adding' });
+      try {
+        const { part, bagId } = await api<{ part: PartSummary; bagId: string }>('/api/intake', {
+          method: 'POST',
+          body: { ...typed, quantity, requestId: newRequestId() },
+        });
+        settle({ state: 'added', total: part.total, partId: part.id, bagId });
+        applyPart(part);
+        await load();
+      } catch (error) {
+        settle({ state: 'failed', message: errorMessage(error) });
+      }
+    },
+    [applyPart, load],
+  );
+
   /** Judges a scanned or typed code against this board. False means it wasn't a part code at all. */
   const runScan = useCallback(
     (raw: string): boolean => {
@@ -220,7 +243,15 @@ export function BoardScreen() {
       const scanId = Date.now();
       const read = classifyScan(raw);
       const stock = read.kind === 'bag' ? addToStock(scanId, raw, read.label) : null;
-      const result: ScanResult = { id: scanId, code: judged.code, quantity: judged.quantity, verdict, otherBoards: null, stock };
+      const result: ScanResult = {
+        id: scanId,
+        code: judged.code,
+        quantity: judged.quantity,
+        verdict,
+        otherBoards: null,
+        stock,
+        typed: judged.typed,
+      };
       setScan(result);
       setQuery('');
       setSelected(null);
@@ -483,6 +514,7 @@ export function BoardScreen() {
           placed={scannedLine ? scannedLine.placed : null}
           onTogglePlaced={scannedLine ? () => void togglePlaced(scannedLine) : undefined}
           partId={scannedPartId}
+          onAddTyped={typedPart ? (quantity) => void addTyped(scan.id, typedPart, quantity) : null}
         />
       ) : null}
 

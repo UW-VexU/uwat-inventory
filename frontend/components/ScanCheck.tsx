@@ -1,6 +1,15 @@
 'use client';
 
-import { formatRefs, lineStatus, type BoardLine, type BoardUse, type LineStatus, type ScanVerdict, type StockNote } from '@uwat/shared';
+import {
+  formatRefs,
+  lineStatus,
+  type BoardLine,
+  type BoardUse,
+  type LineStatus,
+  type ScanVerdict,
+  type StockNote,
+  type TypedPart,
+} from '@uwat/shared';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { formatNumber, plural } from '@/lib/format';
@@ -14,6 +23,8 @@ export interface ScanResult {
   /** Filled in a moment later when a part isn't for this board. */
   otherBoards: BoardUse[] | null;
   stock: StockNote | null;
+  /** Typed rather than scanned, so it waits for a quantity before going into stock. */
+  typed: TypedPart | null;
 }
 
 const SCAN_INTERVAL_MS = 220;
@@ -33,6 +44,7 @@ export function ScanBanner({
   placed = null,
   onTogglePlaced,
   partId = null,
+  onAddTyped = null,
 }: {
   result: ScanResult;
   onClose: () => void;
@@ -41,6 +53,8 @@ export function ScanBanner({
   onTogglePlaced?: () => void;
   /** The inventory part, once known, for a link to its stock. */
   partId?: string | null;
+  /** For a typed number: adds it to stock once its quantity is in. */
+  onAddTyped?: ((quantity: number) => void) | null;
 }) {
   const { verdict, code, quantity } = result;
   const dismiss = (
@@ -53,9 +67,12 @@ export function ScanBanner({
       Edit stock
     </Link>
   ) : null;
+  // Keyed by the scan, so a new typed number starts with an empty box.
+  const prompt = onAddTyped ? <QuantityPrompt key={result.id} onAdd={onAddTyped} /> : null;
   const stock = (
     <>
       {result.stock ? <StockLine note={result.stock} /> : null}
+      {prompt}
       {editStock ? <div className="scan-actions">{editStock}</div> : null}
     </>
   );
@@ -104,6 +121,7 @@ export function ScanBanner({
         <p className="scan-note">Only {formatNumber(quantity)} in this bag, not enough for one board.</p>
       ) : null}
       {result.stock ? <StockLine note={result.stock} /> : null}
+      {prompt}
       <div className="scan-actions">
         {placed !== null && onTogglePlaced ? (
           <button
@@ -118,6 +136,33 @@ export function ScanBanner({
         {editStock}
       </div>
     </section>
+  );
+}
+
+/** Stands in for the quantity a label would have carried. */
+function QuantityPrompt({ onAdd }: { onAdd: (quantity: number) => void }) {
+  const [text, setText] = useState('');
+  const quantity = /^\d+$/.test(text) && Number(text) > 0 ? Number(text) : null;
+  return (
+    <form
+      className="scan-quantity"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (quantity !== null) onAdd(quantity);
+      }}
+    >
+      <input
+        inputMode="numeric"
+        value={text}
+        onChange={(event) => setText(event.target.value.replace(/\D/g, ''))}
+        placeholder="How many in this bag?"
+        aria-label="How many in this bag?"
+        autoFocus
+      />
+      <button type="submit" className="button button-primary" disabled={quantity === null}>
+        Add to stock
+      </button>
+    </form>
   );
 }
 
