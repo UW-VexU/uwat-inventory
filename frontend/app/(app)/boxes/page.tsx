@@ -17,16 +17,6 @@ export default function BoxesPage() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<BoxSummary | null>(null);
 
-  const unitsByBox = useMemo(() => {
-    const units = new Map<string, number>();
-    for (const part of snapshot?.parts ?? []) {
-      for (const bag of part.bags) {
-        if (bag.box) units.set(bag.box.id, (units.get(bag.box.id) ?? 0) + bag.quantity);
-      }
-    }
-    return units;
-  }, [snapshot]);
-
   const loose = useMemo(
     () => (snapshot?.parts ?? []).reduce((sum, part) => sum + part.bags.filter((bag) => !bag.box).length, 0),
     [snapshot],
@@ -38,12 +28,7 @@ export default function BoxesPage() {
   return (
     <div className="page">
       <header className="page-head">
-        <div>
-          <h1>Boxes</h1>
-          <p className="muted">
-            {plural(boxes.length, 'box', 'boxes')}. Open one to see what's in it.
-          </p>
-        </div>
+        <h1>Boxes</h1>
         <div className="page-actions">
           <Link className="button" href="/boxes/labels">
             <Icon name="print" />
@@ -80,7 +65,6 @@ export default function BoxesPage() {
                 <span className="box-card-label">{box.label ?? ' '}</span>
                 <span className="box-card-stats">
                   <strong>{formatNumber(box.bagCount)}</strong> {box.bagCount === 1 ? 'bag' : 'bags'}
-                  <span className="faint"> · {formatNumber(unitsByBox.get(box.id) ?? 0)} units</span>
                 </span>
               </Link>
               <button

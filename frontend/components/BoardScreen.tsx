@@ -7,8 +7,6 @@ import {
   findSpots,
   formatRefs,
   judgeScan,
-  refKind,
-  refKindName,
   shortPartName,
   type BoardDetail,
   type BoardSide,
@@ -42,8 +40,9 @@ interface BomResult {
   problems: ImportProblem[];
 }
 
-const INSETS = { top: 118, right: 24, bottom: 24, left: 24 };
-const PHONE_INSETS = { top: 150, right: 8, bottom: 16, left: 8 };
+// Room for the bar across the top: keep these in step with --stage-bar in globals.css.
+const INSETS = { top: 80, right: 24, bottom: 24, left: 24 };
+const PHONE_INSETS = { top: 116, right: 8, bottom: 16, left: 8 };
 const PHONE_WIDTH = 760;
 const MAX_LABEL_CHARS = 24;
 
@@ -68,7 +67,6 @@ export function BoardScreen() {
   const [problem, setProblem] = useState<string | null>(null);
   const [view, setView] = useState<View>('top');
   const [query, setQuery] = useState(params.get('find') ?? params.get('ref') ?? '');
-  const [kind, setKind] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [bom, setBom] = useState<BomResult | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -105,8 +103,8 @@ export function BoardScreen() {
   const placements = useMemo(() => detail?.placements ?? [], [detail]);
   const scanRefs = scan && scan.verdict.kind !== 'not-here' ? scan.verdict.line.refs : null;
   const typedMatches = useMemo(
-    () => (query.startsWith('[)>') ? [] : findSpots(placements, query, kind)),
-    [placements, query, kind],
+    () => (query.startsWith('[)>') ? [] : findSpots(placements, query, null)),
+    [placements, query],
   );
   const matches = scanRefs ?? typedMatches;
   const lines = useMemo(() => boardLines(placements), [placements]);
@@ -122,15 +120,6 @@ export function BoardScreen() {
   const otherSideCount = matches.length - here.length;
   const matched = useMemo(() => new Set(here), [here]);
   const spot = placements.find((placement) => placement.ref === selected) ?? null;
-
-  const kinds = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const placement of placements.filter((spot) => !spot.dnp)) {
-      const name = refKindName(refKind(placement.ref));
-      counts.set(name, (counts.get(name) ?? 0) + 1);
-    }
-    return [...counts].sort((a, b) => b[1] - a[1]);
-  }, [placements]);
 
   // Arriving from a part, open on the side its spots are on.
   useEffect(() => {
@@ -198,7 +187,6 @@ export function BoardScreen() {
       const result: ScanResult = { id: scanId, code: judged.code, quantity: judged.quantity, verdict, otherBoards: null, stock };
       setScan(result);
       setQuery('');
-      setKind(null);
       setSelected(null);
       setFindInUrl('');
 
@@ -276,7 +264,7 @@ export function BoardScreen() {
   if (!detail) return <div className="page"><p className="muted">Loading board…</p></div>;
 
   const { board } = detail;
-  const filtering = Boolean(query.trim() || kind);
+  const filtering = Boolean(query.trim());
 
   const uploadBom = async (file: File | undefined) => {
     if (!file) return;
@@ -335,112 +323,51 @@ export function BoardScreen() {
       )}
 
       <header className="stage-bar">
-        <div className="stage-row">
-          <Link href="/boards" className="stage-title">
-            {board.name}
-            {board.revision ? <small> rev {board.revision}</small> : null}
-          </Link>
+        <Link href="/boards" className="stage-title">
+          {board.name}
+          {board.revision ? <small> rev {board.revision}</small> : null}
+        </Link>
 
-          <div className="segments" role="tablist" aria-label="Board view">
-            {(['top', 'bottom'] as const).map((name) => (
-              <button key={name} type="button" role="tab" aria-selected={view === name} onClick={() => setView(name)}>
-                {name === 'top' ? 'Top' : 'Bottom'}
-              </button>
-            ))}
-            {board.hasSchematic ? (
-              <button type="button" role="tab" aria-selected={view === 'schematic'} onClick={() => setView('schematic')}>
-                Schematic
-              </button>
-            ) : null}
-          </div>
-
-          <form
-            className="stage-search"
-            role="search"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!runScan(query)) flyToMatches();
-            }}
-          >
-            <Icon name="search" />
-            <input
-              ref={scanInput}
-              type="search"
-              aria-label="Scan a part, or type what you have"
-              value={query}
-              autoFocus
-              placeholder="Scan a part, or type: 10k, resistor, 0603, R12"
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => search(event.target.value)}
-            />
-            <button
-              type="button"
-              className="stage-camera"
-              aria-label="Scan with the camera"
-              title="Scan with the camera"
-              aria-pressed={cameraOpen}
-              onClick={() => setCameraOpen((open) => !open)}
-            >
-              <Icon name="camera" />
+        <div className="segments" role="tablist" aria-label="Board view">
+          {(['top', 'bottom'] as const).map((name) => (
+            <button key={name} type="button" role="tab" aria-selected={view === name} onClick={() => setView(name)}>
+              {name === 'top' ? 'Top' : 'Bottom'}
             </button>
-          </form>
-
-          <details className="stage-more">
-            <summary aria-label="More actions">
-              <Icon name="edit" />
-            </summary>
-            <div className="stage-menu">
-              <button type="button" onClick={() => bomInput.current?.click()}>
-                Upload BOM
-              </button>
-              <button type="button" onClick={() => schematicInput.current?.click()}>
-                {board.hasSchematic ? 'Replace schematic' : 'Add schematic'}
-              </button>
-              <button type="button" className="link-danger" onClick={() => setConfirmingDelete(true)}>
-                Delete board
-              </button>
-            </div>
-          </details>
-        </div>
-
-        <div className="stage-row">
-          <div className="chips chips-tight" role="group" aria-label="Show a kind of part">
-            {kinds.map(([name, count]) => (
-              <button
-                key={name}
-                type="button"
-                className="chip"
-                aria-pressed={kind === name}
-                onClick={() => {
-                  setKind(kind === name ? null : name);
-                  setSelected(null);
-                }}
-              >
-                {name}
-                <span>{count}</span>
-              </button>
-            ))}
-          </div>
-          {lines.length > 0 ? (
-            <button
-              type="button"
-              className="stage-progress"
-              aria-expanded={checklistOpen}
-              onClick={() => setChecklistOpen((open) => !open)}
-            >
-              <Icon name="list" size={16} />
-              <strong>{foundCount}</strong> of {lines.length} in stock
+          ))}
+          {board.hasSchematic ? (
+            <button type="button" role="tab" aria-selected={view === 'schematic'} onClick={() => setView('schematic')}>
+              Schematic
             </button>
           ) : null}
+        </div>
+
+        <form
+          className="stage-search"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!runScan(query)) flyToMatches();
+          }}
+        >
+          <Icon name="search" />
+          <input
+            ref={scanInput}
+            type="search"
+            aria-label="Scan a part, or type what you have"
+            value={query}
+            autoFocus
+            placeholder={phone ? 'Scan or search' : 'Scan a part, or search: 10k, 0603, R12'}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => search(event.target.value)}
+          />
           {filtering ? (
-            <p className="stage-result" aria-live="polite">
+            <span className="stage-result" aria-live="polite">
               {matches.length === 0 ? (
-                <span className="muted">No spots match. Click a spot to link it, or upload a BOM.</span>
+                <span className="muted">No match</span>
               ) : (
                 <>
                   <strong>{here.length}</strong> {here.length === 1 ? 'spot' : 'spots'}
-                  {here.length > 0 && here.length <= 8 ? <span className="muted"> {formatRefs(here)}</span> : null}
                   {otherSideCount > 0 ? (
                     <button
                       type="button"
@@ -452,9 +379,51 @@ export function BoardScreen() {
                   ) : null}
                 </>
               )}
-            </p>
+            </span>
           ) : null}
-        </div>
+          <button
+            type="button"
+            className="stage-camera"
+            aria-label="Scan with the camera"
+            title="Scan with the camera"
+            aria-pressed={cameraOpen}
+            onClick={() => setCameraOpen((open) => !open)}
+          >
+            <Icon name="camera" />
+          </button>
+        </form>
+
+        {lines.length > 0 ? (
+          <button
+            type="button"
+            className="stage-progress"
+            aria-expanded={checklistOpen}
+            aria-label={`${foundCount} of ${lines.length} parts in stock`}
+            title="Parts in stock"
+            onClick={() => setChecklistOpen((open) => !open)}
+          >
+            <Icon name="list" size={16} />
+            <strong>{foundCount}</strong>
+            <span>of {lines.length}</span>
+          </button>
+        ) : null}
+
+        <details className="stage-more">
+          <summary aria-label="More actions">
+            <Icon name="edit" />
+          </summary>
+          <div className="stage-menu">
+            <button type="button" onClick={() => bomInput.current?.click()}>
+              Upload BOM
+            </button>
+            <button type="button" onClick={() => schematicInput.current?.click()}>
+              {board.hasSchematic ? 'Replace schematic' : 'Add schematic'}
+            </button>
+            <button type="button" className="link-danger" onClick={() => setConfirmingDelete(true)}>
+              Delete board
+            </button>
+          </div>
+        </details>
       </header>
 
       {spot && view !== 'schematic' ? (
@@ -471,7 +440,7 @@ export function BoardScreen() {
         />
       ) : null}
 
-      {scan ? <ScanBanner result={scan} boardName={board.name} onClose={() => setScan(null)} /> : null}
+      {scan ? <ScanBanner result={scan} onClose={() => setScan(null)} /> : null}
 
       {cameraOpen ? <CameraScanner onScan={runScan} onClose={() => setCameraOpen(false)} /> : null}
 

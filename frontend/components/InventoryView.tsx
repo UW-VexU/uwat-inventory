@@ -31,8 +31,6 @@ export function InventoryView() {
 
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string | null>(null);
-  const [packageName, setPackageName] = useState<string | null>(null);
-  const [project, setProject] = useState<string | null>(null);
   const [boxId, setBoxId] = useState<string | null>(params.get('box'));
   const [stock, setStock] = useState<Stock>(null);
   const [sort, setSort] = useState<SortKey>('name');
@@ -44,23 +42,23 @@ export function InventoryView() {
   const allParts = useMemo(() => snapshot?.parts ?? [], [snapshot]);
   // The latest scan of each part, so a second bag of it flashes its row again.
   const arrived = useMemo(() => new Map(arrivals.map((arrival) => [arrival.partId, arrival.seq])), [arrivals]);
-  const facets = useMemo(() => buildFacets(allParts), [allParts]);
+  const categories = useMemo(() => buildFacets(allParts).categories, [allParts]);
 
   const parts = useMemo(() => {
-    const sorted = filterParts(allParts, { query, category, package: packageName, project, boxId, stock }, sort);
+    const sorted = filterParts(allParts, { query, category, boxId, stock }, sort);
     return descending ? sorted.reverse() : sorted;
-  }, [allParts, query, category, packageName, project, boxId, stock, sort, descending]);
+  }, [allParts, query, category, boxId, stock, sort, descending]);
 
   const counts = useMemo(() => {
     const statuses = allParts.map(stockStatus);
     return {
-      bags: allParts.reduce((sum, part) => sum + part.bags.length, 0),
       low: statuses.filter((status) => status !== 'ok').length,
       out: statuses.filter((status) => status === 'out').length,
     };
   }, [allParts]);
 
   const selected = allParts.find((part) => part.id === selectedId) ?? null;
+  const box = snapshot?.boxes.find((candidate) => candidate.id === boxId) ?? null;
 
   const select = useCallback((id: string | null) => {
     setSelectedId(id);
@@ -72,12 +70,10 @@ export function InventoryView() {
     setUrlParam('box', id);
   };
 
-  const hasFilters = Boolean(query || category || packageName || project || boxId || stock);
+  const hasFilters = Boolean(query || category || boxId || stock);
   const clearFilters = () => {
     setQuery('');
     setCategory(null);
-    setPackageName(null);
-    setProject(null);
     changeBox(null);
     setStock(null);
   };
@@ -169,45 +165,18 @@ export function InventoryView() {
           </button>
         </header>
 
-        <div className="ledger" role="group" aria-label="Stock totals">
-          <div className="ledger-cell">
-            <strong>{formatNumber(allParts.length)}</strong>
-            <span>Parts</span>
-          </div>
-          <div className="ledger-cell">
-            <strong>{formatNumber(counts.bags)}</strong>
-            <span>Bags</span>
-          </div>
-          <div className="ledger-cell">
-            <strong>{formatNumber(snapshot.boxes.length)}</strong>
-            <span>Boxes</span>
-          </div>
-          <button
-            type="button"
-            className="ledger-cell ledger-button ledger-low"
-            aria-pressed={stock === 'low'}
-            onClick={() => setStock(stock === 'low' ? null : 'low')}
-          >
-            <strong>{formatNumber(counts.low)}</strong>
-            <span>Low</span>
-          </button>
-          <button
-            type="button"
-            className="ledger-cell ledger-button ledger-out"
-            aria-pressed={stock === 'out'}
-            onClick={() => setStock(stock === 'out' ? null : 'out')}
-          >
-            <strong>{formatNumber(counts.out)}</strong>
-            <span>Out</span>
-          </button>
-        </div>
-
         <div className="filters">
-          <div className="chips" role="group" aria-label="Category">
+          <div className="chips" role="group" aria-label="Filter parts">
+            {box || boxId === 'none' ? (
+              <button type="button" className="chip" aria-pressed="true" title="Show every box" onClick={() => changeBox(null)}>
+                {box ? `In ${box.code}` : 'Not in a box'}
+                <Icon name="close" size={14} />
+              </button>
+            ) : null}
             <button type="button" className="chip" aria-pressed={!category} onClick={() => setCategory(null)}>
               All
             </button>
-            {facets.categories.map((facet) => (
+            {categories.map((facet) => (
               <button
                 key={facet.value}
                 type="button"
@@ -216,55 +185,37 @@ export function InventoryView() {
                 onClick={() => setCategory(category === facet.value ? null : facet.value)}
               >
                 {facet.value}
-                <span>{facet.count}</span>
               </button>
             ))}
+            {counts.low > 0 ? (
+              <button
+                type="button"
+                className="chip chip-low"
+                aria-pressed={stock === 'low'}
+                onClick={() => setStock(stock === 'low' ? null : 'low')}
+              >
+                Low <span>{formatNumber(counts.low)}</span>
+              </button>
+            ) : null}
+            {counts.out > 0 ? (
+              <button
+                type="button"
+                className="chip chip-out"
+                aria-pressed={stock === 'out'}
+                onClick={() => setStock(stock === 'out' ? null : 'out')}
+              >
+                Out <span>{formatNumber(counts.out)}</span>
+              </button>
+            ) : null}
           </div>
-
-          <div className="selects">
-            <label className="select">
-              <span>Package</span>
-              <select value={packageName ?? ''} onChange={(event) => setPackageName(event.target.value || null)}>
-                <option value="">Any package</option>
-                {facets.packages.map((facet) => (
-                  <option key={facet.value} value={facet.value}>
-                    {facet.value} ({facet.count})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="select">
-              <span>Project</span>
-              <select value={project ?? ''} onChange={(event) => setProject(event.target.value || null)}>
-                <option value="">Any project</option>
-                {facets.projects.map((facet) => (
-                  <option key={facet.value} value={facet.value}>
-                    {facet.value} ({facet.count})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="select">
-              <span>Box</span>
-              <select value={boxId ?? ''} onChange={(event) => changeBox(event.target.value || null)}>
-                <option value="">Any box</option>
-                <option value="none">No box</option>
-                {snapshot.boxes.map((box) => (
-                  <option key={box.id} value={box.id}>
-                    {box.code}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {hasFilters ? (
             <p className="result-count" aria-live="polite">
               {plural(parts.length, 'part')}
-              {hasFilters ? (
-                <button type="button" className="link-button" onClick={clearFilters}>
-                  Clear
-                </button>
-              ) : null}
+              <button type="button" className="link-button" onClick={clearFilters}>
+                Clear
+              </button>
             </p>
-          </div>
+          ) : null}
         </div>
 
         {allParts.length === 0 ? (
@@ -286,8 +237,7 @@ export function InventoryView() {
                     Part
                   </button>
                 </th>
-                <th className="col-package">Package</th>
-                <th aria-sort={sortState('box')}>
+                <th className="col-box" aria-sort={sortState('box')}>
                   <button type="button" onClick={() => sortBy('box')}>
                     Box
                   </button>
@@ -353,7 +303,6 @@ function PartRow({
         </button>
         <span className="part-number">{part.partNumber ?? part.mfrPartNumber ?? 'No part number'}</span>
       </td>
-      <td className="col-package">{part.package ?? <span className="faint">—</span>}</td>
       <td>
         <span className="tags">
           {shown.length === 0 ? <span className="faint">No bags</span> : null}

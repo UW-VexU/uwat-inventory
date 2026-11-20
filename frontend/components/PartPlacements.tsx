@@ -54,16 +54,12 @@ function BoardUseCard({ use }: { use: BoardUse }) {
 }
 
 export function PartPlacements({ part }: { part: PartSummary }) {
+  if (part.usedOn.length === 0) return null;
   return (
     <section className="panel-section">
       <div className="section-head">
         <h3>Where it goes</h3>
       </div>
-      {part.usedOn.length === 0 ? (
-        <p className="muted">
-          Not linked to a board yet. Link it from <Link href="/boards">Boards</Link>.
-        </p>
-      ) : null}
       {part.usedOn.map((use) => (
         <BoardUseCard key={use.boardId} use={use} />
       ))}

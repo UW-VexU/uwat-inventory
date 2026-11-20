@@ -86,10 +86,7 @@ export default function ImportPage() {
   return (
     <div className="page page-narrow">
       <header className="page-head">
-        <div>
-          <h1>Import</h1>
-          <p className="muted">Bring in lots of bags at once from a CSV or pasted label text.</p>
-        </div>
+        <h1>Import</h1>
       </header>
 
       {!preview ? (

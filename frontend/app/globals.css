@@ -146,14 +146,6 @@ textarea {
   display: block;
 }
 
-.rail-team {
-  display: block;
-  margin-top: 10px;
-  font-style: italic;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
 .rail-nav {
   position: relative;
   z-index: 1;
@@ -414,79 +406,39 @@ kbd {
   filter: grayscale(1) brightness(1.6);
 }
 
-.ledger {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin-top: 18px;
-  border: 1px solid var(--line);
-  background: var(--ink-raised);
-}
-
-.ledger-cell {
+.filters {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 9px 16px;
-  border: 0;
-  border-right: 1px solid var(--line);
-  background: none;
-  text-align: left;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 10px;
 }
 
-.ledger-cell:last-child {
-  border-right: 0;
+.filters .chips {
+  flex: 1;
+  min-width: 0;
 }
 
-.ledger-cell strong {
-  font: italic 700 25px/1.1 var(--display);
-  color: var(--white);
-}
-
-.ledger-cell span {
-  font: italic 700 12px var(--display);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.ledger-button {
-  cursor: pointer;
-}
-
-.ledger-button:hover {
-  background: var(--ink-control);
-}
-
-.ledger-low strong {
+.chip.chip-low span {
   color: var(--gold);
 }
 
-.ledger-out strong {
+.chip.chip-out span {
   color: var(--danger);
 }
 
-.ledger-low[aria-pressed='true'] {
+.chip-low[aria-pressed='true'] {
+  border-color: var(--gold);
   background: var(--gold);
 }
 
-.ledger-low[aria-pressed='true'] strong,
-.ledger-low[aria-pressed='true'] span {
-  color: var(--ink);
-}
-
-.ledger-out[aria-pressed='true'] {
+.chip-out[aria-pressed='true'] {
+  border-color: var(--danger);
   background: var(--danger);
 }
 
-.ledger-out[aria-pressed='true'] strong,
-.ledger-out[aria-pressed='true'] span {
+.chip.chip-low[aria-pressed='true'] span,
+.chip.chip-out[aria-pressed='true'] span {
   color: var(--ink);
-}
-
-.filters {
-  display: grid;
-  gap: 12px;
-  margin: 16px 0 10px;
 }
 
 .chips {
@@ -529,13 +481,6 @@ kbd {
   color: #555;
 }
 
-.selects {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-}
-
 .select {
   display: inline-flex;
   align-items: center;
@@ -565,7 +510,8 @@ kbd {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-left: auto;
+  flex: none;
+  margin: 0;
   color: var(--muted);
   font-size: 13.5px;
 }
@@ -662,12 +608,7 @@ kbd {
   cursor: default;
 }
 
-.col-package {
-  width: 104px;
-  color: var(--muted);
-}
-
-.parts th:nth-child(3) {
+.parts th.col-box {
   width: 170px;
 }
 
@@ -781,14 +722,15 @@ kbd {
 
 .panel-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  min-height: 34px;
+  gap: 12px;
 }
 
 .panel-tools {
   display: flex;
-  margin-right: -8px;
+  flex: none;
+  margin: -4px -8px 0 0;
 }
 
 .eyebrow {
@@ -799,7 +741,6 @@ kbd {
 }
 
 .panel-title {
-  margin-top: 6px;
   font-size: 20px;
   overflow-wrap: anywhere;
 }
@@ -850,9 +791,6 @@ kbd {
   align-items: center;
   gap: 12px;
   margin-top: 16px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  background: var(--ink);
 }
 
 .total-plate strong {
@@ -1281,6 +1219,18 @@ kbd {
   font-size: 13px;
 }
 
+/* A long feed of Undo links is noise; each one shows on its own row when needed. */
+@media (hover: hover) {
+  .feed-side .link-button {
+    opacity: 0;
+  }
+
+  .feed li:hover .link-button,
+  .feed li:focus-within .link-button {
+    opacity: 1;
+  }
+}
+
 .import-source {
   display: grid;
   gap: 14px;
@@ -1450,9 +1400,8 @@ kbd {
 .dropzone {
   display: grid;
   justify-items: center;
-  gap: 12px;
   margin-bottom: 18px;
-  padding: 26px 16px;
+  padding: 40px 16px;
   border: 1px dashed var(--line-strong);
   background: var(--holes);
   text-align: center;
@@ -1466,13 +1415,6 @@ kbd {
 .dropzone p {
   font: italic 700 18px var(--display);
   color: var(--white);
-}
-
-.dropzone-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
 }
 
 .board-replace {
@@ -1606,6 +1548,7 @@ kbd {
 /* The board canvas: one big board you zoom around, with everything labelled on it. */
 
 .stage {
+  --stage-bar: 64px;
   position: relative;
   height: 100dvh;
   overflow: hidden;
@@ -1728,7 +1671,7 @@ kbd {
 
 .scan-banner {
   position: absolute;
-  top: 118px;
+  top: calc(var(--stage-bar) + 12px);
   left: 16px;
   z-index: 2;
   display: grid;
@@ -1824,9 +1767,8 @@ kbd {
   flex: none;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  margin-left: auto;
-  padding: 0 10px;
+  height: 40px;
+  padding: 0 12px;
   border: 1px solid var(--line-strong);
   background: none;
   color: var(--muted);
@@ -1839,13 +1781,10 @@ kbd {
   color: var(--gold);
 }
 
-.stage-progress + .stage-result {
-  margin-left: 0;
-}
 
 .checklist {
   position: absolute;
-  top: 110px;
+  top: calc(var(--stage-bar) + 12px);
   right: 16px;
   bottom: 70px;
   z-index: 3;
@@ -1949,13 +1888,6 @@ kbd {
   gap: 10px;
 }
 
-.canvas-hint {
-  padding: 3px 8px;
-  background: rgb(8 8 8 / 82%);
-  color: var(--muted);
-  font-size: 13px;
-}
-
 .zoom {
   display: flex;
   border: 1px solid var(--line-strong);
@@ -1987,18 +1919,13 @@ kbd {
   position: absolute;
   inset: 0 0 auto;
   z-index: 3;
-  display: grid;
-  gap: 8px;
-  padding: 12px 16px 10px;
-  border-bottom: 1px solid var(--line);
-  background: rgb(17 17 17 / 92%);
-}
-
-.stage-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 0;
+  height: var(--stage-bar);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: rgb(17 17 17 / 92%);
 }
 
 .stage-title {
@@ -2115,27 +2042,12 @@ kbd {
   color: var(--danger);
 }
 
-.chips-tight {
-  flex-wrap: nowrap;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.chips-tight::-webkit-scrollbar {
-  display: none;
-}
-
-.chips-tight .chip {
-  flex: none;
-}
-
 .stage-result {
   display: flex;
   flex: none;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
+  color: var(--text);
   font-size: 14px;
   white-space: nowrap;
 }
@@ -2147,7 +2059,7 @@ kbd {
 
 .spot-float {
   position: absolute;
-  top: 118px;
+  top: calc(var(--stage-bar) + 12px);
   right: 16px;
   z-index: 2;
   display: grid;
@@ -2203,7 +2115,7 @@ kbd {
 
 .schematic {
   position: absolute;
-  inset: 106px 0 0;
+  inset: var(--stage-bar) 0 0;
   overflow: auto;
   background: var(--white);
 }
@@ -2461,9 +2373,6 @@ kbd {
   }
 
   .rail::after,
-  .rail-team {
-    display: none;
-  }
 
   .rail-brand {
     padding: 0;
@@ -2538,25 +2447,9 @@ kbd {
     clip-path: inset(50%);
   }
 
-  .ledger {
-    margin-top: 10px;
-  }
-
-  .ledger-cell {
-    flex-direction: column;
-    gap: 0;
-    padding: 5px 8px;
-  }
-
-  .ledger-cell strong {
-    font-size: 19px;
-  }
-
-  .ledger-cell span {
-    font-size: 10.5px;
-  }
-
   .filters {
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
     margin-top: 10px;
   }
@@ -2578,41 +2471,11 @@ kbd {
     flex: none;
   }
 
-  .selects {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
-  }
-
-  .select {
-    min-width: 0;
-  }
-
-  .select > span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
-
-  .select select {
-    width: 100%;
-    max-width: none;
-  }
-
   .result-count {
-    grid-column: 1 / -1;
     justify-content: space-between;
-    margin-left: 0;
   }
 
-  .col-package,
-  .parts th.col-package {
-    display: none;
-  }
-
-  .parts th:nth-child(3) {
+  .parts th.col-box {
     width: 92px;
   }
 
@@ -2649,21 +2512,25 @@ kbd {
 
 @media (max-width: 760px) {
   .stage {
+    --stage-bar: 104px;
     height: calc(100dvh - 86px);
   }
 
   .stage-bar {
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 8px;
     padding: 8px;
   }
 
-  .stage-row {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
+  /* Title, view and menu on top; search and the stock count underneath. */
   .stage-search {
     order: 3;
-    flex-basis: 100%;
+    flex: 1 1 200px;
+  }
+
+  .stage-progress {
+    order: 4;
   }
 
   .stage-title {
@@ -2671,18 +2538,14 @@ kbd {
     font-size: 17px;
   }
 
-  .stage-result {
-    margin-left: 0;
-  }
-
   .scan-banner {
-    top: 150px;
+    top: calc(var(--stage-bar) + 8px);
     left: 8px;
     width: calc(100% - 16px);
   }
 
   .checklist {
-    top: 150px;
+    top: calc(var(--stage-bar) + 8px);
     right: 8px;
     bottom: 8px;
     width: calc(100% - 16px);
@@ -2700,10 +2563,6 @@ kbd {
     left: 8px;
     width: auto;
     max-height: 48%;
-  }
-
-  .schematic {
-    top: 150px;
   }
 }
 

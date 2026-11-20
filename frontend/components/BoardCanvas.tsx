@@ -299,7 +299,6 @@ export const BoardCanvas = forwardRef<BoardCanvasHandle, Props>(function BoardCa
     return layoutLabels(requests, scale, { widthMm, heightMm });
   }, [detail, filtering, heightMm, labelLines, matched, scale, selected, side, visible, widthMm]);
 
-  const hiddenLabels = (filtering ? visible.filter((spot) => matched.has(spot.ref)).length : visible.length) - labels.length;
   const flip = (x: number) => (side === 'bottom' ? widthMm - x : x);
   const hoverSpot = hovered && !dragging ? visible.find((spot) => spot.ref === hovered) : undefined;
 
@@ -402,7 +401,6 @@ export const BoardCanvas = forwardRef<BoardCanvasHandle, Props>(function BoardCa
       ) : null}
 
       <div className="canvas-tools" onPointerDown={(event) => event.stopPropagation()}>
-        {hiddenLabels > 0 ? <span className="canvas-hint">Zoom in for {hiddenLabels} more labels</span> : null}
         <div className="zoom">
           <button type="button" aria-label="Zoom out" onClick={() => zoomButton(1 / 1.5)}>
             <Icon name="minus" />

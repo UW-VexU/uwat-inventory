@@ -68,10 +68,7 @@ export default function ActivityPage() {
   return (
     <div className="page page-narrow">
       <header className="page-head">
-        <div>
-          <h1>Activity</h1>
-          <p className="muted">Every stock change, newest first.</p>
-        </div>
+        <h1>Activity</h1>
         <div className="page-actions">
           <a className="button" href="/api/export.csv">
             Export inventory CSV

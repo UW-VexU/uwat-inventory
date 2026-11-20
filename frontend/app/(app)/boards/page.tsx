@@ -75,55 +75,59 @@ export default function BoardsPage() {
     }
   };
 
+  // Uploading is rare, so it lives in the header. Drop anywhere on the page.
+  const showDropzone = dragging || busy || boards?.length === 0;
+
   return (
-    <div className="page">
+    <div
+      className="page"
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragging(false);
+        void take(event.dataTransfer.files);
+      }}
+    >
       <header className="page-head">
-        <div>
-          <h1>Boards</h1>
-          <p className="muted">Upload a board's gerbers to see where every part goes.</p>
+        <h1>Boards</h1>
+        <div className="page-actions">
+          <button type="button" className="button" disabled={busy} onClick={() => folderInput.current?.click()}>
+            Upload folder
+          </button>
+          <button type="button" className="button button-primary" disabled={busy} onClick={() => fileInput.current?.click()}>
+            <Icon name="upload" />
+            Upload gerbers
+          </button>
         </div>
       </header>
 
-      <section
-        className={`dropzone ${dragging ? 'is-dragging' : ''}`}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragging(false);
-          void take(event.dataTransfer.files);
-        }}
-      >
-        <p>{busy ? 'Reading the board…' : 'Drop gerbers here, loose or zipped'}</p>
-        <div className="dropzone-actions">
-          <button type="button" className="button button-primary" disabled={busy} onClick={() => fileInput.current?.click()}>
-            <Icon name="upload" />
-            Choose files or zip
-          </button>
-          <button type="button" className="button" disabled={busy} onClick={() => folderInput.current?.click()}>
-            Choose folder
-          </button>
-        </div>
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          className="sr-only"
-          aria-label="Choose gerber files or a zip"
-          onChange={(event) => void take(event.target.files)}
-        />
-        <input
-          ref={folderInput}
-          type="file"
-          className="sr-only"
-          aria-label="Choose a gerber folder"
-          onChange={(event) => void take(event.target.files)}
-          {...folderProps}
-        />
-      </section>
+      {showDropzone ? (
+        <section className={`dropzone ${dragging ? 'is-dragging' : ''}`}>
+          <p>{busy ? 'Reading the board…' : 'Drop gerbers here, loose or zipped'}</p>
+        </section>
+      ) : null}
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        className="sr-only"
+        aria-label="Choose gerber files or a zip"
+        onChange={(event) => void take(event.target.files)}
+      />
+      <input
+        ref={folderInput}
+        type="file"
+        className="sr-only"
+        aria-label="Choose a gerber folder"
+        onChange={(event) => void take(event.target.files)}
+        {...folderProps}
+      />
 
       {problem ? <p className="form-error" role="alert">{problem}</p> : null}
 

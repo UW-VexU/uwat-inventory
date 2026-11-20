@@ -3,7 +3,7 @@
 import { stockStatus, type BagSummary, type PartSummary, type StockEventView } from '@uwat/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiFailure, errorMessage, newRequestId } from '@/lib/api';
-import { formatNumber, plural, timeAgo } from '@/lib/format';
+import { formatNumber, timeAgo } from '@/lib/format';
 import { useInventory } from '@/lib/inventory';
 import { AddBagDialog } from './AddBagDialog';
 import { BoxTag } from './BoxTag';
@@ -70,10 +70,7 @@ export function PartPanel({ part, onClose }: { part: PartSummary; onClose: () =>
   return (
     <aside className="panel" aria-label={part.description}>
       <header className="panel-head">
-        <p className="eyebrow">
-          {part.category}
-          {part.package ? ` · ${part.package}` : ''}
-        </p>
+        <h2 className="panel-title">{part.description}</h2>
         <div className="panel-tools">
           <button type="button" className="icon-button" aria-label="Edit part" title="Edit part" onClick={() => setEditing(true)}>
             <Icon name="edit" />
@@ -84,7 +81,6 @@ export function PartPanel({ part, onClose }: { part: PartSummary; onClose: () =>
         </div>
       </header>
 
-      <h2 className="panel-title">{part.description}</h2>
       <dl className="panel-numbers">
         {part.partNumber ? (
           <div>
@@ -108,9 +104,7 @@ export function PartPanel({ part, onClose }: { part: PartSummary; onClose: () =>
       <section className="total-plate" aria-label="Total in stock">
         <strong className={`qty-${status}`}>{formatNumber(part.total)}</strong>
         <div>
-          <span>
-            in stock across {plural(part.bags.length, 'bag')}
-          </span>
+          <span>in stock</span>
           {part.minQty !== null ? <span className="faint">Reorder at {formatNumber(part.minQty)}</span> : null}
         </div>
         {status !== 'ok' ? <span className={`flag flag-${status}`}>{status === 'out' ? 'Out' : 'Low'}</span> : null}

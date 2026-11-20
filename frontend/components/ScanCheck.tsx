@@ -22,19 +22,11 @@ const REPEAT_HOLD_MS = 2500;
 function otherBoardText(boards: BoardUse[] | null): string {
   if (boards === null) return 'Checking other boards…';
   const [first] = boards;
-  if (!first) return "It isn't on any board that's been uploaded.";
+  if (!first) return 'Not on any other board.';
   return boards.map((use) => `Goes on ${use.boardName}: ${formatRefs(use.refs)}`).join('. ');
 }
 
-export function ScanBanner({
-  result,
-  boardName,
-  onClose,
-}: {
-  result: ScanResult;
-  boardName: string;
-  onClose: () => void;
-}) {
+export function ScanBanner({ result, onClose }: { result: ScanResult; onClose: () => void }) {
   const { verdict, code, quantity } = result;
   const dismiss = (
     <button type="button" className="icon-button" aria-label="Dismiss" onClick={onClose}>
@@ -66,9 +58,7 @@ export function ScanBanner({
           {dismiss}
         </header>
         <p className="scan-value">{line.value ?? code}</p>
-        <p className="scan-note">
-          {boardName} has a spot for it at {formatRefs(line.refs)}, but the BOM says do not populate.
-        </p>
+        <p className="scan-note">The BOM says do not populate {formatRefs(line.refs)}.</p>
         {stock}
       </section>
     );
@@ -85,11 +75,8 @@ export function ScanBanner({
       <p className="scan-spots">
         {plural(line.refs.length, 'spot')}: {formatRefs(line.refs)}
       </p>
-      {quantity !== null ? (
-        <p className="scan-note">
-          This bag holds {formatNumber(quantity)}
-          {quantity < line.refs.length ? `, which isn't enough for one board.` : '.'}
-        </p>
+      {quantity !== null && quantity < line.refs.length ? (
+        <p className="scan-note">Only {formatNumber(quantity)} in this bag, not enough for one board.</p>
       ) : null}
       {stock}
     </section>
@@ -100,7 +87,7 @@ function StockLine({ note }: { note: StockNote }) {
   const text = {
     adding: 'Adding to stock…',
     added: note.state === 'added' ? `Added to stock. ${formatNumber(note.total)} in stock now.` : '',
-    already: 'Already in stock, so not added again.',
+    already: 'Already added to stock.',
     failed: note.state === 'failed' ? `Not added to stock. ${note.message}` : '',
   }[note.state];
   return <p className={`scan-stock scan-stock-${note.state}`}>{text}</p>;

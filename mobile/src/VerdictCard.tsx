@@ -19,7 +19,7 @@ const count = (value: number, word: string) => `${value} ${word}${value === 1 ? 
 
 function otherBoardText(boards: BoardUse[] | null): string {
   if (boards === null) return 'Checking other boards…';
-  if (boards.length === 0) return "It isn't on any board that's been uploaded.";
+  if (boards.length === 0) return 'Not on any other board.';
   return boards.map((use) => `Goes on ${use.boardName}: ${formatRefs(use.refs)}`).join('. ');
 }
 
@@ -51,7 +51,7 @@ function StockLine({ note }: { note: StockNote }) {
       case 'added':
         return [colours.gold, `Added to stock. ${note.total} in stock now.`];
       case 'already':
-        return [colours.muted, 'Already in stock, so not added again.'];
+        return [colours.muted, 'Already added to stock.'];
       case 'failed':
         return [colours.danger, `Not added to stock. ${note.message}`];
     }
@@ -60,13 +60,7 @@ function StockLine({ note }: { note: StockNote }) {
 }
 
 export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null; onClear: () => void }) {
-  if (!outcome) {
-    return (
-      <View style={styles.idle}>
-        <Text style={styles.note}>Point the camera at the square barcode on a bag.</Text>
-      </View>
-    );
-  }
+  if (!outcome) return null;
 
   const body = (() => {
     if (outcome.kind === 'no-code') {
@@ -111,15 +105,16 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
     return (
       <Card tone={colours.gold} title="Goes on this board" stock={stock}>
         <Text style={styles.value}>{line.value ?? code}</Text>
-        {line.description ? <Text style={styles.note}>{line.description}</Text> : null}
+        {line.description ? (
+          <Text style={styles.note} numberOfLines={2}>
+            {line.description}
+          </Text>
+        ) : null}
         <Text style={styles.spots}>
           {count(line.refs.length, 'spot')}: {formatRefs(line.refs)}
         </Text>
-        {quantity !== null ? (
-          <Text style={styles.note}>
-            This bag holds {quantity}
-            {quantity < line.refs.length ? ", which isn't enough for one board." : '.'}
-          </Text>
+        {quantity !== null && quantity < line.refs.length ? (
+          <Text style={styles.note}>Only {quantity} in this bag, not enough for one board.</Text>
         ) : null}
       </Card>
     );
@@ -134,7 +129,6 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
 
 const styles = StyleSheet.create({
   card: { paddingHorizontal: 14, paddingVertical: 10, borderLeftWidth: 6, backgroundColor: colours.raised },
-  idle: { paddingHorizontal: 14, paddingVertical: 12, backgroundColor: colours.raised },
   title: { fontFamily: fonts.display, fontSize: 22 },
   value: { marginTop: 2, color: colours.white, fontFamily: fonts.display, fontSize: 17 },
   spots: { marginTop: 3, color: colours.white, fontFamily: fonts.bold, fontSize: 15 },

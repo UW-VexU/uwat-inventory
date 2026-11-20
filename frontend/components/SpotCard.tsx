@@ -61,10 +61,7 @@ export function SpotCard({ boardId, spot, placements, onClose, onChanged }: Prop
         <span className="box-tag box-tag-large">
           <span>{spot.ref}</span>
         </span>
-        <span className="eyebrow">
-          {spot.side === 'top' ? 'Top' : 'Bottom'}
-          {spot.packageGuess ? ` · ${spot.packageGuess}` : ''}
-        </span>
+        <span className="eyebrow">{spot.packageGuess ?? ''}</span>
         <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
           <Icon name="close" />
         </button>

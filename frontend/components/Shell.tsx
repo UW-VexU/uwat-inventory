@@ -30,7 +30,6 @@ export function Shell({ children }: { children: ReactNode }) {
         <Link href="/" className="rail-brand" aria-label="UWAT inventory home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/uwat-logo-white.svg" alt="UWAT" width={124} height={29} />
-          <span className="rail-team">VEXU Competitive Robotics</span>
         </Link>
 
         <nav className="rail-nav" aria-label="Main">
