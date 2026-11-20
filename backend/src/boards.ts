@@ -1,5 +1,6 @@
 import type { Board, Prisma } from '@prisma/client';
 import {
+  boardLines,
   compareRefs,
   parseBom,
   type BoardDetail,
@@ -31,15 +32,43 @@ const bomBody = z.object({ text: z.string().min(1) });
 const whichQuery = z.object({ partNumber: z.string().max(120).optional(), mfrPartNumber: z.string().max(120).optional() });
 const linkBody = z.object({ refs: z.array(z.string().max(16)).min(1).max(500), partId: z.string().nullable() });
 
-const counted = {
-  _count: { select: { placements: true } },
-  placements: { where: { partId: { not: null } }, select: { id: true } },
-} satisfies Prisma.BoardInclude;
+const placementInclude = {
+  part: {
+    select: {
+      id: true,
+      partNumber: true,
+      description: true,
+      bags: { where: { archivedAt: null }, select: { quantity: true, box: { select: { code: true } } } },
+    },
+  },
+} satisfies Prisma.PlacementInclude;
 
-type CountedBoard = Omit<Board, 'topSvg' | 'bottomSvg' | 'schematic'> & {
-  _count: { placements: number };
-  placements: { id: string }[];
-};
+type PlacementRow = Prisma.PlacementGetPayload<{ include: typeof placementInclude }>;
+
+function toPlacementView(row: PlacementRow): PlacementView {
+  return {
+    ref: row.ref,
+    side: row.side === 'bottom' ? 'bottom' : 'top',
+    x: row.x,
+    y: row.y,
+    pads: row.pads as unknown as BoardPad[],
+    packageGuess: row.packageGuess,
+    dnp: row.dnp,
+    value: row.value,
+    bomDescription: row.bomDescription,
+    bomPartNumber: row.bomPartNumber,
+    bomMfrNumber: row.bomMfrNumber,
+    part: row.part
+      ? {
+          id: row.part.id,
+          partNumber: row.part.partNumber,
+          description: row.part.description,
+          total: row.part.bags.reduce((sum, bag) => sum + bag.quantity, 0),
+          boxes: [...new Set(row.part.bags.flatMap((bag) => (bag.box ? [bag.box.code] : [])))].sort(compareRefs),
+        }
+      : null,
+  };
+}
 
 const summaryFields = {
   id: true,
@@ -49,10 +78,14 @@ const summaryFields = {
   heightMm: true,
   schematicType: true,
   createdAt: true,
-  ...counted,
+  placements: { include: placementInclude },
 } satisfies Prisma.BoardSelect;
 
-function toSummary(board: CountedBoard): BoardSummary {
+type SummaryRow = Omit<Board, 'topSvg' | 'bottomSvg' | 'schematic'> & { placements: PlacementRow[] };
+
+/** Counts parts the way the board page does: one line per distinct part, done once it's in stock. */
+function toSummary(board: SummaryRow): BoardSummary {
+  const lines = boardLines(board.placements.map(toPlacementView));
   return {
     id: board.id,
     name: board.name,
@@ -61,8 +94,9 @@ function toSummary(board: CountedBoard): BoardSummary {
     heightMm: board.heightMm,
     hasSchematic: board.schematicType !== null,
     schematicType: board.schematicType,
-    placementCount: board._count.placements,
-    linkedCount: board.placements.length,
+    placementCount: board.placements.length,
+    lineCount: lines.length,
+    stockedCount: lines.filter((line) => line.stock > 0).length,
   };
 }
 
@@ -164,44 +198,6 @@ export function boardFileRoutes(config: Config): Router {
 
   return router;
 }
-
-function toPlacementView(row: PlacementRow): PlacementView {
-  return {
-    ref: row.ref,
-    side: row.side === 'bottom' ? 'bottom' : 'top',
-    x: row.x,
-    y: row.y,
-    pads: row.pads as unknown as BoardPad[],
-    packageGuess: row.packageGuess,
-    dnp: row.dnp,
-    value: row.value,
-    bomDescription: row.bomDescription,
-    bomPartNumber: row.bomPartNumber,
-    bomMfrNumber: row.bomMfrNumber,
-    part: row.part
-      ? {
-          id: row.part.id,
-          partNumber: row.part.partNumber,
-          description: row.part.description,
-          total: row.part.bags.reduce((sum, bag) => sum + bag.quantity, 0),
-          boxes: [...new Set(row.part.bags.flatMap((bag) => (bag.box ? [bag.box.code] : [])))].sort(compareRefs),
-        }
-      : null,
-  };
-}
-
-const placementInclude = {
-  part: {
-    select: {
-      id: true,
-      partNumber: true,
-      description: true,
-      bags: { where: { archivedAt: null }, select: { quantity: true, box: { select: { code: true } } } },
-    },
-  },
-} satisfies Prisma.PlacementInclude;
-
-type PlacementRow = Prisma.PlacementGetPayload<{ include: typeof placementInclude }>;
 
 async function findPart(partNumber: string | null, mfrPartNumber: string | null) {
   const part = partNumber

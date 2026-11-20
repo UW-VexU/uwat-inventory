@@ -3,12 +3,14 @@ import {
   BOX_CODE_PATTERN,
   CATEGORIES,
   compareRefs,
+  describeBomLine,
   nextBoxCode,
   normaliseBoxCode,
   parseDescription,
   type BagSummary,
   type BoardUse,
   type InventorySnapshot,
+  type LiveMessage,
   type PartSummary,
   type StockEventView,
 } from '@uwat/shared';
@@ -204,9 +206,11 @@ export async function findOrCreatePart(tx: Tx, details: BagDetails) {
     return tx.part.update({ where: { id: part.id }, data: fillIn });
   }
 
-  const text = description ?? partNumber ?? mfrPartNumber;
+  const fromBom = description ? null : await describeFromBoards(tx, partNumber, mfrPartNumber);
+  // The maker's number reads better than DigiKey's, which the list already shows under the name.
+  const text = description ?? fromBom?.description ?? mfrPartNumber ?? partNumber;
   if (!text) throw new ApiError(422, 'invalid', 'A new part needs a description or part number.');
-  const parsed = parseDescription(text);
+  const parsed = fromBom ?? parseDescription(text);
   const created = await tx.part.create({
     data: {
       partNumber: partNumber ?? null,
@@ -221,11 +225,27 @@ export async function findOrCreatePart(tx: Tx, details: BagDetails) {
   return created;
 }
 
+function sameNumber(partNumber: string | null | undefined, mfrPartNumber: string | null | undefined) {
+  const matches: Prisma.PlacementWhereInput[] = [];
+  if (partNumber) matches.push({ bomPartNumber: { equals: partNumber, mode: 'insensitive' } });
+  if (mfrPartNumber) matches.push({ bomMfrNumber: { equals: mfrPartNumber, mode: 'insensitive' } });
+  return matches;
+}
+
+/** A scanned label has no description, but a board's BOM may know the part. */
+async function describeFromBoards(tx: Tx, partNumber: string | null | undefined, mfrPartNumber: string | null | undefined) {
+  const matches = sameNumber(partNumber, mfrPartNumber);
+  if (matches.length === 0) return null;
+  const spot = await tx.placement.findFirst({
+    where: { AND: [{ OR: matches }, { OR: [{ value: { not: null } }, { bomDescription: { not: null } }] }] },
+    orderBy: { ref: 'asc' },
+  });
+  return spot ? describeBomLine({ ref: spot.ref, value: spot.value, description: spot.bomDescription, packageGuess: spot.packageGuess }) : null;
+}
+
 /** A BOM can name a part before any arrive. Once it does, its spots link up on their own. */
 async function claimWaitingSpots(tx: Tx, part: { id: string; partNumber: string | null; mfrPartNumber: string | null }) {
-  const matches: Prisma.PlacementWhereInput[] = [];
-  if (part.partNumber) matches.push({ bomPartNumber: { equals: part.partNumber, mode: 'insensitive' } });
-  if (part.mfrPartNumber) matches.push({ bomMfrNumber: { equals: part.mfrPartNumber, mode: 'insensitive' } });
+  const matches = sameNumber(part.partNumber, part.mfrPartNumber);
   if (matches.length > 0) {
     await tx.placement.updateMany({ where: { partId: null, OR: matches }, data: { partId: part.id } });
   }
@@ -318,7 +338,17 @@ export function inventoryRoutes(): Router {
       });
       return { partId: part.id, bagId: bag.id };
     });
-    res.status(201).json({ part: await partSummary(result.partId), bagId: result.bagId });
+    const part = await partSummary(result.partId);
+    res.locals.live = {
+      type: 'intake',
+      partId: part.id,
+      name: part.mfrPartNumber ?? part.partNumber ?? part.description,
+      quantity: body.quantity,
+      by: req.user!.name ?? req.user!.login,
+      // Only the phone app signs in with a bearer token.
+      source: req.get('authorization')?.startsWith('Bearer ') ? 'phone' : 'web',
+    } satisfies LiveMessage;
+    res.status(201).json({ part, bagId: result.bagId });
   });
 
   router.patch('/parts/:id', async (req, res) => {

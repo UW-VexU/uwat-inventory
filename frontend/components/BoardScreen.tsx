@@ -2,6 +2,7 @@
 
 import {
   boardLines,
+  classifyScan,
   describeRole,
   findSpots,
   formatRefs,
@@ -12,19 +13,22 @@ import {
   type BoardDetail,
   type BoardSide,
   type BoardSummary,
+  type BagLabel,
   type BoardUse,
   type ImportProblem,
+  type PartSummary,
   type PlacementView,
+  type StockNote,
 } from '@uwat/shared';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, errorMessage, putFile } from '@/lib/api';
+import { api, ApiFailure, errorMessage, newRequestId, putFile } from '@/lib/api';
 import { plural } from '@/lib/format';
 import { useInventory } from '@/lib/inventory';
 import { BoardCanvas, type BoardCanvasHandle } from './BoardCanvas';
 import { Icon } from './Icon';
-import { CameraScanner, Checklist, ScanBanner, useFoundLines, type ScanResult } from './ScanCheck';
+import { CameraScanner, Checklist, ScanBanner, type ScanResult } from './ScanCheck';
 import { SpotCard } from './SpotCard';
 import { useToast } from './Toast';
 
@@ -58,7 +62,7 @@ export function BoardScreen() {
   const params = useSearchParams();
   const router = useRouter();
   const toast = useToast();
-  const { refresh } = useInventory();
+  const { refresh, applyPart, liveVersion } = useInventory();
 
   const [detail, setDetail] = useState<BoardDetail | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -86,9 +90,10 @@ export function BoardScreen() {
     }
   }, [id]);
 
+  // Again whenever anyone changes stock, so a phone scan ticks parts off here too.
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, liveVersion]);
 
   useEffect(() => {
     const check = () => setPhone(window.innerWidth <= PHONE_WIDTH);
@@ -105,12 +110,11 @@ export function BoardScreen() {
   );
   const matches = scanRefs ?? typedMatches;
   const lines = useMemo(() => boardLines(placements), [placements]);
-  const { found, markFound, reset: resetFound } = useFoundLines(id);
-  const doneRefs = useMemo(
-    () => new Set(lines.filter((line) => found.has(line.key)).flatMap((line) => line.refs)),
-    [found, lines],
-  );
-  const foundCount = lines.filter((line) => found.has(line.key)).length;
+  // Found means in stock, so this page, the boards list and every phone agree.
+  const doneRefs = useMemo(() => new Set(lines.filter((line) => line.stock > 0).flatMap((line) => line.refs)), [lines]);
+  const foundCount = lines.filter((line) => line.stock > 0).length;
+  // Bags sent to stock on this visit. The camera keeps seeing a label while it's in view.
+  const sent = useRef(new Map<string, { requestId: string; note: StockNote }>());
   const spotsBySide = useMemo(() => new Map(placements.map((spot) => [spot.ref, spot.side])), [placements]);
 
   const side: BoardSide = view === 'bottom' ? 'bottom' : 'top';
@@ -143,6 +147,44 @@ export function BoardScreen() {
     setScan(null);
   };
 
+  /** Every real bag label scanned here goes into the inventory, whichever board it's for. */
+  const addToStock = useCallback(
+    (scanId: number, raw: string, label: BagLabel): StockNote => {
+      const key = label.labelKey ?? raw;
+      const earlier = sent.current.get(key);
+      if (earlier && earlier.note.state !== 'failed') return earlier.note;
+
+      const requestId = earlier?.requestId ?? newRequestId();
+      const settle = (note: StockNote) => {
+        sent.current.set(key, { requestId, note });
+        setScan((current) => (current?.id === scanId ? { ...current, stock: note } : current));
+      };
+      sent.current.set(key, { requestId, note: { state: 'adding' } });
+      api<{ part: PartSummary }>('/api/intake', {
+        method: 'POST',
+        body: {
+          partNumber: label.partNumber,
+          mfrPartNumber: label.mfrPartNumber,
+          quantity: label.quantity ?? 0,
+          project: label.project,
+          labelKey: label.labelKey,
+          requestId,
+        },
+      })
+        .then(({ part }) => {
+          settle({ state: 'added', total: part.total });
+          applyPart(part);
+          void load();
+        })
+        .catch((error: unknown) => {
+          if (error instanceof ApiFailure && error.code === 'duplicate_label') settle({ state: 'already' });
+          else settle({ state: 'failed', message: errorMessage(error) });
+        });
+      return { state: 'adding' };
+    },
+    [applyPart, load],
+  );
+
   /** Judges a scanned or typed code against this board. False means it wasn't a part code at all. */
   const runScan = useCallback(
     (raw: string): boolean => {
@@ -150,7 +192,10 @@ export function BoardScreen() {
       if (!judged) return false;
 
       const { bag, verdict } = judged;
-      const result: ScanResult = { id: Date.now(), code: judged.code, quantity: judged.quantity, verdict, otherBoards: null };
+      const scanId = Date.now();
+      const read = classifyScan(raw);
+      const stock = read.kind === 'bag' ? addToStock(scanId, raw, read.label) : null;
+      const result: ScanResult = { id: scanId, code: judged.code, quantity: judged.quantity, verdict, otherBoards: null, stock };
       setScan(result);
       setQuery('');
       setKind(null);
@@ -167,14 +212,13 @@ export function BoardScreen() {
           })
           .catch(() => undefined);
       } else {
-        if (verdict.kind === 'fits') markFound(verdict.line.key);
         const onThisSide = verdict.line.refs.some((ref) => spotsBySide.get(ref) === side);
         const first = verdict.line.refs[0];
         if (!onThisSide && first) setView(spotsBySide.get(first) ?? 'top');
       }
       return true;
     },
-    [markFound, placements, side, spotsBySide],
+    [addToStock, placements, side, spotsBySide],
   );
 
   // A USB scanner just types, so it has to work wherever the focus happens to be.
@@ -386,7 +430,7 @@ export function BoardScreen() {
               onClick={() => setChecklistOpen((open) => !open)}
             >
               <Icon name="list" size={16} />
-              <strong>{foundCount}</strong> of {lines.length} found
+              <strong>{foundCount}</strong> of {lines.length} in stock
             </button>
           ) : null}
           {filtering ? (
@@ -434,12 +478,10 @@ export function BoardScreen() {
       {checklistOpen ? (
         <Checklist
           lines={lines}
-          found={found}
           onPick={(refs) => {
             setChecklistOpen(false);
             search(refs.join(','));
           }}
-          onReset={resetFound}
           onClose={() => setChecklistOpen(false)}
         />
       ) : null}

@@ -643,6 +643,17 @@ kbd {
   box-shadow: inset 3px 0 0 var(--gold);
 }
 
+/* Just scanned in on a phone: a gold wash that fades, so it's easy to spot as it lands. */
+.parts tbody tr.is-new td {
+  animation: arrive 2.4s ease-out;
+}
+
+@keyframes arrive {
+  from {
+    background: rgb(224 163 0 / 30%);
+  }
+}
+
 .parts tr.is-skipped {
   opacity: 0.45;
 }
@@ -720,6 +731,11 @@ kbd {
 .flag-out {
   background: var(--danger-wash);
   color: var(--danger);
+}
+
+.flag-new {
+  border: 1px solid var(--gold);
+  color: var(--gold);
 }
 
 .empty {
@@ -1770,6 +1786,21 @@ kbd {
   font-size: 13.5px;
 }
 
+.scan-stock {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.scan-stock-added {
+  color: var(--gold);
+}
+
+.scan-stock-failed {
+  color: var(--danger);
+}
+
 .stage-camera {
   display: grid;
   flex: none;
@@ -1868,11 +1899,6 @@ kbd {
 
 .checklist li.is-found button {
   color: var(--faint);
-}
-
-.checklist footer {
-  padding: 8px 12px;
-  border-top: 1px solid var(--line);
 }
 
 .camera {

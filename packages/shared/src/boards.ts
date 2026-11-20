@@ -48,7 +48,10 @@ export interface BoardSummary {
   hasSchematic: boolean;
   schematicType: string | null;
   placementCount: number;
-  linkedCount: number;
+  /** Distinct parts the board needs, leaving out spots the BOM says to leave empty. */
+  lineCount: number;
+  /** How many of those are in stock. */
+  stockedCount: number;
 }
 
 export interface BoardDetail {
@@ -371,6 +374,8 @@ export interface BoardLine {
   partNumber: string | null;
   mfrPartNumber: string | null;
   refs: string[];
+  /** How many are in stock. A line counts as found once this is above zero. */
+  stock: number;
 }
 
 export type ScanVerdict =
@@ -388,6 +393,7 @@ function toLine(spots: readonly PlacementView[]): BoardLine | null {
     partNumber: first.bomPartNumber ?? first.part?.partNumber ?? null,
     mfrPartNumber: first.bomMfrNumber,
     refs: spots.map((spot) => spot.ref).sort(compareRefs),
+    stock: Math.max(0, ...spots.map((spot) => spot.part?.total ?? 0)),
   };
 }
 

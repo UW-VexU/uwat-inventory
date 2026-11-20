@@ -33,7 +33,7 @@ function groupByDay(events: StockEventView[]) {
 }
 
 export default function ActivityPage() {
-  const { applyPart } = useInventory();
+  const { applyPart, liveVersion } = useInventory();
   const toast = useToast();
   const [events, setEvents] = useState<StockEventView[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -49,9 +49,10 @@ export default function ActivityPage() {
     }
   }, []);
 
+  // Reloads when anyone changes stock, so a phone scan shows up here too.
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, liveVersion]);
 
   const undo = async (eventId: string) => {
     try {

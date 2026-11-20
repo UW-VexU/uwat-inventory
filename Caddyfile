@@ -3,7 +3,9 @@
 }
 
 :2210 {
-	encode gzip
+	# The live feed sends small messages that gzip would hold back.
+	@compress not path /api/live
+	encode @compress gzip
 	@api path /api/*
 	handle @api {
 		reverse_proxy api:2211

@@ -69,6 +69,18 @@ export interface InventorySnapshot {
   generatedAt: string;
 }
 
+/** What happened to a scanned bag label in the inventory. Typed part numbers aren't bags, so they get none. */
+export type StockNote =
+  | { state: 'adding' }
+  | { state: 'added'; total: number }
+  | { state: 'already' }
+  | { state: 'failed'; message: string };
+
+/** Sent down /api/live whenever stock changes, so open pages can catch up straight away. */
+export type LiveMessage =
+  | { type: 'change' }
+  | { type: 'intake'; partId: string; name: string; quantity: number; by: string; source: 'phone' | 'web' };
+
 export interface CurrentUser {
   id: string;
   login: string;

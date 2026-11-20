@@ -6,20 +6,19 @@ import { colours, fonts } from './theme';
 interface Props {
   visible: boolean;
   lines: readonly BoardLine[];
-  found: ReadonlySet<string>;
   onClose: () => void;
-  onReset: () => void;
 }
 
-export function Checklist({ visible, lines, found, onClose, onReset }: Props) {
-  const ordered = [...lines.filter((line) => !found.has(line.key)), ...lines.filter((line) => found.has(line.key))];
-  const left = lines.length - lines.filter((line) => found.has(line.key)).length;
+/** The board's parts, missing ones first. A part is ticked once it's in stock, from any phone or computer. */
+export function Checklist({ visible, lines, onClose }: Props) {
+  const ordered = [...lines.filter((line) => line.stock === 0), ...lines.filter((line) => line.stock > 0)];
+  const left = lines.filter((line) => line.stock === 0).length;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.sheet}>
         <View style={styles.head}>
-          <Text style={styles.title}>{left === 0 ? 'Everything found' : `${left} still to find`}</Text>
+          <Text style={styles.title}>{left === 0 ? 'Everything in stock' : `${left} not in stock yet`}</Text>
           <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}>
             <Text style={styles.link}>Done</Text>
           </Pressable>
@@ -28,21 +27,21 @@ export function Checklist({ visible, lines, found, onClose, onReset }: Props) {
           data={ordered}
           keyExtractor={(line) => line.key}
           renderItem={({ item }) => {
-            const done = found.has(item.key);
+            const done = item.stock > 0;
             return (
               <View style={styles.row}>
                 <Text style={styles.tick}>{done ? '✓' : '□'}</Text>
                 <View style={styles.rowText}>
                   <Text style={[styles.value, done && styles.faded]}>{item.value ?? item.partNumber}</Text>
-                  <Text style={styles.refs}>{formatRefs(item.refs)}</Text>
+                  <Text style={styles.refs}>
+                    {formatRefs(item.refs)}
+                    {done ? `  ·  ${item.stock} in stock` : ''}
+                  </Text>
                 </View>
               </View>
             );
           }}
         />
-        <Pressable onPress={onReset} style={styles.reset} accessibilityRole="button">
-          <Text style={styles.link}>Start over</Text>
-        </Pressable>
       </SafeAreaView>
     </Modal>
   );
@@ -73,5 +72,4 @@ const styles = StyleSheet.create({
   value: { color: colours.white, fontFamily: fonts.medium, fontSize: 15 },
   faded: { color: colours.faint },
   refs: { color: colours.faint, fontFamily: fonts.body, fontSize: 13 },
-  reset: { padding: 16, alignItems: 'center' },
 });

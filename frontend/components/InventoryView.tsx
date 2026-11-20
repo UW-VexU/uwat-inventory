@@ -26,7 +26,7 @@ function setUrlParam(key: string, value: string | null) {
 }
 
 export function InventoryView() {
-  const { snapshot, loadError } = useInventory();
+  const { snapshot, loadError, arrivals } = useInventory();
   const params = useSearchParams();
 
   const [query, setQuery] = useState('');
@@ -42,6 +42,8 @@ export function InventoryView() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const allParts = useMemo(() => snapshot?.parts ?? [], [snapshot]);
+  // The latest scan of each part, so a second bag of it flashes its row again.
+  const arrived = useMemo(() => new Map(arrivals.map((arrival) => [arrival.partId, arrival.seq])), [arrivals]);
   const facets = useMemo(() => buildFacets(allParts), [allParts]);
 
   const parts = useMemo(() => {
@@ -109,6 +111,12 @@ export function InventoryView() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [parts, select, selectedId]);
+
+  // A "Show" on a phone scan notice links here with ?part=.
+  const partParam = params.get('part');
+  useEffect(() => {
+    setSelectedId(partParam);
+  }, [partParam]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -293,7 +301,13 @@ export function InventoryView() {
             </thead>
             <tbody>
               {parts.map((part) => (
-                <PartRow key={part.id} part={part} selected={part.id === selectedId} onSelect={select} />
+                <PartRow
+                  key={`${part.id}:${arrived.get(part.id) ?? 0}`}
+                  part={part}
+                  selected={part.id === selectedId}
+                  isNew={arrived.has(part.id)}
+                  onSelect={select}
+                />
               ))}
             </tbody>
           </table>
@@ -315,10 +329,12 @@ export function InventoryView() {
 function PartRow({
   part,
   selected,
+  isNew,
   onSelect,
 }: {
   part: PartSummary;
   selected: boolean;
+  isNew: boolean;
   onSelect: (id: string) => void;
 }) {
   const status = stockStatus(part);
@@ -326,7 +342,11 @@ function PartRow({
   const shown = codes.slice(0, MAX_TAGS);
 
   return (
-    <tr data-part={part.id} className={selected ? 'is-selected' : undefined} onClick={() => onSelect(part.id)}>
+    <tr
+      data-part={part.id}
+      className={[selected && 'is-selected', isNew && 'is-new'].filter(Boolean).join(' ') || undefined}
+      onClick={() => onSelect(part.id)}
+    >
       <td>
         <button type="button" className="part-name" onClick={() => onSelect(part.id)}>
           {part.description}
@@ -345,6 +365,7 @@ function PartRow({
       </td>
       <td className="col-qty">
         <span className={`qty qty-${status}`}>{formatNumber(part.total)}</span>
+        {isNew ? <span className="flag flag-new">New</span> : null}
         {status !== 'ok' ? <span className={`flag flag-${status}`}>{status === 'out' ? 'Out' : 'Low'}</span> : null}
       </td>
     </tr>

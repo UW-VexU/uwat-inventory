@@ -1,10 +1,14 @@
 import {
   boardLines,
+  classifyScan,
   judgeScan,
+  type BagLabel,
   type BoardDetail,
   type BoardSide,
   type BoardUse,
+  type PartSummary,
   type PlacementView,
+  type StockNote,
 } from '@uwat/shared';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Device from 'expo-device';
@@ -14,11 +18,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { canScanPhotos, LabelScannerView, liveScanSupported, scanPhoto, type ScannedCode } from '../../modules/label-scanner';
-import { api } from '../../src/api';
+import { api, ApiFailure } from '../../src/api';
 import { BoardPreview } from '../../src/BoardPreview';
 import { Checklist } from '../../src/Checklist';
 import { colours, fonts } from '../../src/theme';
-import { useFoundLines } from '../../src/useFoundLines';
 import { VerdictCard, type ScanOutcome } from '../../src/VerdictCard';
 
 /** The camera sees the same label many times a second, so hold off before reading it again. */
@@ -32,6 +35,9 @@ function logScan(raw: string, result: string) {
   // Only used while testing. It shows what a real label holds, straight from the server log.
   if (SCAN_LOG) void api('/api/debug/scan', { method: 'POST', body: { raw, result } }).catch(() => undefined);
 }
+
+/** Identifies one send to the server, so a retry after a dropped connection isn't counted twice. */
+const newRequestId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
 export default function CheckScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -56,13 +62,17 @@ export default function CheckScreen() {
   const typed = useRef('');
   // clear() doesn't reliably reach a native input here, so each entry gets a fresh one.
   const [entry, setEntry] = useState(0);
-  const { found, markFound, reset } = useFoundLines(id);
+  // Bags sent to stock on this visit. The camera keeps seeing a label while it's in view,
+  // and each bag should only be added once.
+  const sent = useRef(new Map<string, { requestId: string; note: StockNote }>());
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api<BoardDetail>(`/api/boards/${id}`)
       .then(setDetail)
       .catch((error: Error) => setProblem(error.message));
   }, [id]);
+
+  useEffect(load, [load]);
 
   useEffect(
     () => () => {
@@ -79,14 +89,47 @@ export default function CheckScreen() {
 
   const placements = useMemo<readonly PlacementView[]>(() => detail?.placements ?? [], [detail]);
   const lines = useMemo(() => boardLines(placements), [placements]);
-  const foundCount = lines.filter((line) => found.has(line.key)).length;
-  const done = useMemo(
-    () => lines.filter((line) => found.has(line.key)).flatMap((line) => line.refs),
-    [found, lines],
-  );
+  // Found means in stock, so every phone and the website agree on what's still missing.
+  const foundCount = lines.filter((line) => line.stock > 0).length;
+  const done = useMemo(() => lines.filter((line) => line.stock > 0).flatMap((line) => line.refs), [lines]);
 
   const verdict = outcome?.kind === 'judged' ? outcome.verdict : null;
   const lit = useMemo(() => (verdict && verdict.kind !== 'not-here' ? verdict.line.refs : []), [verdict]);
+
+  /** Every real bag label that gets scanned goes into the inventory, whichever board it's for. */
+  const addToStock = useCallback((code: string, raw: string, label: BagLabel): StockNote => {
+    const key = label.labelKey ?? raw;
+    const earlier = sent.current.get(key);
+    if (earlier && earlier.note.state !== 'failed') return earlier.note;
+
+    const requestId = earlier?.requestId ?? newRequestId();
+    const settle = (note: StockNote) => {
+      sent.current.set(key, { requestId, note });
+      setOutcome((current) => (current?.kind === 'judged' && current.code === code ? { ...current, stock: note } : current));
+    };
+    sent.current.set(key, { requestId, note: { state: 'adding' } });
+    api<{ part: PartSummary }>('/api/intake', {
+      method: 'POST',
+      body: {
+        partNumber: label.partNumber,
+        mfrPartNumber: label.mfrPartNumber,
+        quantity: label.quantity ?? 0,
+        project: label.project,
+        labelKey: label.labelKey,
+        requestId,
+      },
+    })
+      .then(({ part }) => {
+        settle({ state: 'added', total: part.total });
+        // Picks up the new stock on this board's spots and checklist.
+        load();
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiFailure && error.status === 409) settle({ state: 'already' });
+        else settle({ state: 'failed', message: (error as Error).message });
+      });
+    return { state: 'adding' };
+  }, [load]);
 
   const runScan = useCallback(
     (raw: string, fromCamera: boolean) => {
@@ -107,7 +150,10 @@ export default function CheckScreen() {
 
       const { bag, code, quantity } = judged;
       logScan(raw, judged.verdict.kind);
-      setOutcome({ kind: 'judged', code, quantity, verdict: judged.verdict, otherBoards: null });
+      const read = classifyScan(raw);
+      // The server answers well after this render, so its result lands on this scan's card.
+      const stock = read.kind === 'bag' ? addToStock(code, raw, read.label) : null;
+      setOutcome({ kind: 'judged', code, quantity, verdict: judged.verdict, otherBoards: null, stock });
 
       if (judged.verdict.kind === 'not-here') {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -129,12 +175,11 @@ export default function CheckScreen() {
           ? Haptics.NotificationFeedbackType.Success
           : Haptics.NotificationFeedbackType.Warning,
       );
-      if (judged.verdict.kind === 'fits') markFound(judged.verdict.line.key);
       const { refs } = judged.verdict.line;
       const onTop = placements.filter((spot) => refs.includes(spot.ref) && spot.side === 'top').length;
       setSide(onTop * 2 >= refs.length ? 'top' : 'bottom');
     },
-    [markFound, placements],
+    [addToStock, placements],
   );
 
   const onBarcode = useCallback(
@@ -312,13 +357,7 @@ export default function CheckScreen() {
         />
       </View>
 
-      <Checklist
-        visible={checklistOpen}
-        lines={lines}
-        found={found}
-        onClose={() => setChecklistOpen(false)}
-        onReset={reset}
-      />
+      <Checklist visible={checklistOpen} lines={lines} onClose={() => setChecklistOpen(false)} />
     </SafeAreaView>
   );
 }

@@ -2,7 +2,7 @@
 
 Parts inventory for UWAT VEXU Competitive Robotics. It tracks every bag of electrical parts: what's in it, how many, and which box it's in.
 
-- **Phase 1 (in progress):** the website is done. The phone app can check parts against a board. Its inventory screens are still to come.
+- **Phase 1 (in progress):** the website is done. The phone app checks parts against a board, and every bag it scans goes into stock. Its other inventory screens are still to come.
 - **Phase 2:** NFC tags on bags. Each bag already has a reserved `tagUid` field.
 
 ## How it's organised
@@ -39,6 +39,7 @@ npm install
 cp .env.example .env        # set DATABASE_URL for your Postgres
 npx prisma migrate dev
 npm run db:seed             # about 260 made-up parts to try things with
+                            # (db:clear-stock -- --yes empties stock again, keeping boards and boxes)
 npm run dev                 # API on :2211
 
 cd ../frontend
@@ -76,6 +77,7 @@ Clients download the whole inventory in one request and search it locally. At a 
 - **Add bag:** paste a whole label into the P/N box and it fills in the form.
 - **Import:** takes a CSV, such as a DigiKey order export, or pasted label text.
 - **Boxes > Print labels:** prints a sheet of box labels with QR codes for the phone app.
+- **Live:** open pages update by themselves when anyone changes stock. A bag scanned on a phone pops up with a notice and flashes its row, marked **New**.
 
 ## Boards
 
@@ -89,7 +91,9 @@ A box often holds parts for several boards. Open the board you're building, then
 - **Not for this board** names the board it belongs to, if that board has been uploaded.
 - **Leave this one off** means the BOM marks that spot do not populate.
 
-Scan with a USB scanner, which works wherever the focus is, or with the camera button. The camera needs HTTPS, or localhost. Parts are matched on the DigiKey number, then the maker's number, because one part can be sold under several DigiKey numbers. **Found** tracks what's been scanned on this computer and lists what's still missing, and found spots stay marked on the board.
+Scan with a USB scanner, which works wherever the focus is, or with the camera button. The camera needs HTTPS, or localhost. Parts are matched on the DigiKey number, then the maker's number, because one part can be sold under several DigiKey numbers. Every bag label scanned here, or on a phone, goes into stock, whichever board it's for. Scanning the same label again won't add it twice. **In stock** counts the board's parts that have stock, the same number the boards list and the phone show, and lists what's still missing. Parts in stock stay marked on the board.
+
+A bag label has no description, so a new part takes its name from a board's BOM line when one lists it, and otherwise from the maker's number.
 
 The same box takes typed searches: a value (`10k`), a type (`resistor`), a size (`0603`), a designator (`R12`), a net (`SD_CMD`) or a box (`B-08`). Matching spots light up, and Enter flies to them. Hover over a part for the short answer, or click it for a small card with its wiring. Opening a part in the inventory shows a thumbnail of the board, which opens this view with its spots lit.
 
@@ -109,7 +113,7 @@ Lines like "Pull-up on SD_CMD" are worked out from the wiring alone, so treat th
 
 ## Phone app
 
-The Expo app in `mobile/` does the board check: pick a board, scan each item from the box, and see if it belongs. It works on iOS and Android, and shares its logic with the website through `packages/shared`.
+The Expo app in `mobile/` does the board check: pick a board, scan each item from the box, and see if it belongs. Each bag it scans is added to stock and shows up on the website straight away. It works on iOS and Android, and shares its logic with the website through `packages/shared`.
 
 To try it on a phone, install Expo Go, put the phone on the same network as this computer, then:
 

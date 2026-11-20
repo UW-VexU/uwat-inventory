@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { api, ApiFailure, errorMessage } from '@/lib/api';
 import { readGerberFiles, type GerberText } from '@/lib/gerberFiles';
+import { useInventory } from '@/lib/inventory';
 
 const folderProps = { webkitdirectory: '', directory: '' } as Record<string, string>;
 
@@ -17,6 +18,7 @@ interface Duplicate {
 
 export default function BoardsPage() {
   const router = useRouter();
+  const { liveVersion } = useInventory();
   const [boards, setBoards] = useState<BoardSummary[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,9 +35,10 @@ export default function BoardsPage() {
     }
   }, []);
 
+  // Again whenever stock changes, since that moves each board's count.
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, liveVersion]);
 
   const send = async (files: GerberText[], replace = false) => {
     setBusy(true);
@@ -150,7 +153,7 @@ export default function BoardsPage() {
                   {board.revision ? <small> rev {board.revision}</small> : null}
                 </span>
                 <span className="muted">
-                  {board.linkedCount} of {board.placementCount} spots linked
+                  {board.stockedCount} of {board.lineCount} parts in stock
                 </span>
               </Link>
             </li>

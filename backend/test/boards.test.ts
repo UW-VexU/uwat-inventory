@@ -104,7 +104,8 @@ describe('uploading gerbers', () => {
       name: 'Test Board',
       revision: 'B',
       placementCount: 3,
-      linkedCount: 0,
+      lineCount: 0,
+      stockedCount: 0,
       hasSchematic: false,
     });
     expect(response.body.board.widthMm).toBeCloseTo(20, 0);
@@ -229,7 +230,7 @@ describe('linking parts to spots', () => {
     expect(parts[0].usedOn).toEqual([{ boardId: id, boardName: 'Test Board', revision: 'B', refs: ['R1', 'R2'] }]);
 
     const { board, placements } = (await client.get(`/api/boards/${id}`)).body;
-    expect(board.linkedCount).toBe(2);
+    expect(board).toMatchObject({ lineCount: 1, stockedCount: 1 });
     expect(placements[0].part).toMatchObject({ id: partId, total: 40, boxes: ['B-01'] });
   });
 
@@ -303,6 +304,42 @@ describe('uploading a BOM', () => {
 
     const after = (await client.get(`/api/boards/${id}`)).body.placements[2];
     expect(after.part).toMatchObject({ partNumber: '36-5000-ND', total: 25 });
+  });
+
+  it('counts a part as in stock once a bag of it arrives, and not after it runs out', async () => {
+    const client = await signIn();
+    const id = await uploaded(client);
+    await client.post(`/api/boards/${id}/bom`, { text: BOM });
+    const counts = async () => (await client.get('/api/boards')).body.boards[0];
+    expect(await counts()).toMatchObject({ lineCount: 2, stockedCount: 0 });
+
+    const { bagId } = await addBag(client, 100, { partNumber: '311-10.0KHRCT-ND', description: 'RES 10K OHM 1% 1/10W 0603' });
+    expect(await counts()).toMatchObject({ lineCount: 2, stockedCount: 1 });
+    expect((await client.get(`/api/boards/${id}`)).body.board.stockedCount).toBe(1);
+
+    await client.post(`/api/bags/${bagId}/take`, { amount: 100 });
+    expect(await counts()).toMatchObject({ stockedCount: 0 });
+  });
+
+  it('names a part scanned in later from its BOM line, since bag labels carry no description', async () => {
+    const client = await signIn();
+    const id = await uploaded(client);
+    await client.post(`/api/boards/${id}/bom`, {
+      text: `Reference,Value,Description,Manufacturer Part Number,DigiKey Part Number
+"R1, R2",30.1k,"FB divider bottom, 1% 0603",RC0603FR-0730K1L,311-30.1KHRCT-ND`,
+    });
+
+    const { body } = await client.post('/api/intake', {
+      partNumber: '311-30.1KHRCT-ND',
+      mfrPartNumber: 'RC0603FR-0730K1L',
+      quantity: 50,
+    });
+
+    expect(body.part).toMatchObject({
+      description: '30.1k, FB divider bottom, 1% 0603',
+      category: 'Resistors',
+      usedOn: [{ boardId: id, refs: ['R1', 'R2'] }],
+    });
   });
 
   it('marks do-not-populate spots, and never links a part to them', async () => {

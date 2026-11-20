@@ -33,6 +33,56 @@ export function parseDescription(description: string): ParsedDescription {
   return { category, package: parsePackage(text) };
 }
 
+/** Designator letters, for BOM descriptions that don't start with a word like CAP or RES. */
+const REF_CATEGORIES: Record<string, Category> = {
+  R: 'Resistors',
+  C: 'Capacitors',
+  L: 'Inductors',
+  FB: 'Inductors',
+  D: 'Diodes',
+  Q: 'Transistors',
+  U: 'ICs',
+  IC: 'ICs',
+  J: 'Connectors',
+  P: 'Connectors',
+  CN: 'Connectors',
+  SW: 'Switches',
+  F: 'Protection',
+  Y: 'Crystals',
+  X: 'Crystals',
+};
+
+export interface BomLine {
+  ref: string;
+  value: string | null;
+  description: string | null;
+  packageGuess: string | null;
+}
+
+const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9.+]/g, '');
+
+/**
+ * A bag label has no description, but the board's BOM line for the same part does.
+ * BOMs are written by people ("30.1k" and "FB divider bottom, 1% 0603"), so the value
+ * goes in front unless the description already says it.
+ */
+export function describeBomLine(line: BomLine): ParsedDescription & { description: string } | null {
+  const value = line.value?.trim() || null;
+  const words = line.description?.trim() || null;
+  const description = !words ? value : !value || squash(words).includes(squash(value)) ? words : `${value}, ${words}`;
+  if (!description) return null;
+
+  const text = description.toUpperCase();
+  const parsed = parseDescription(text);
+  let category = parsed.category;
+  if (category === 'Other') {
+    if (/\bLED\b/.test(text)) category = 'LEDs';
+    else if (/\b(TVS|ESD|FUSE|PTC)\b/.test(text)) category = 'Protection';
+    else category = REF_CATEGORIES[/^[A-Z]+/.exec(line.ref.toUpperCase())?.[0] ?? ''] ?? 'Other';
+  }
+  return { description, category, package: line.packageGuess ?? parsed.package };
+}
+
 function parsePackage(text: string): string | null {
   const counted = COUNTED_PACKAGE.exec(text);
   if (counted) {

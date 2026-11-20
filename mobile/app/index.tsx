@@ -1,6 +1,6 @@
 import type { BoardSummary } from '@uwat/shared';
-import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -98,9 +98,12 @@ function Boards() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Again on coming back from a board, since scanning there changes what's in stock.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -132,7 +135,9 @@ function Boards() {
               {item.name}
               {item.revision ? <Text style={styles.cardRev}> rev {item.revision}</Text> : null}
             </Text>
-            <Text style={styles.note}>{item.placementCount} spots</Text>
+            <Text style={styles.note}>
+              {item.stockedCount} of {item.lineCount} parts in stock
+            </Text>
           </Pressable>
         )}
       />

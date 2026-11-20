@@ -1,9 +1,16 @@
-import { formatRefs, type BoardUse, type ScanVerdict } from '@uwat/shared';
+import { formatRefs, type BoardUse, type ScanVerdict, type StockNote } from '@uwat/shared';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colours, fonts } from './theme';
 
 export type ScanOutcome =
-  | { kind: 'judged'; code: string; quantity: number | null; verdict: ScanVerdict; otherBoards: BoardUse[] | null }
+  | {
+      kind: 'judged';
+      code: string;
+      quantity: number | null;
+      verdict: ScanVerdict;
+      otherBoards: BoardUse[] | null;
+      stock: StockNote | null;
+    }
   | { kind: 'unreadable'; raw: string }
   // A photo with no square code in it, or one the phone couldn't open.
   | { kind: 'no-code'; reason: string | null };
@@ -16,13 +23,40 @@ function otherBoardText(boards: BoardUse[] | null): string {
   return boards.map((use) => `Goes on ${use.boardName}: ${formatRefs(use.refs)}`).join('. ');
 }
 
-function Card({ tone, title, children }: { tone: string; title: string; children: React.ReactNode }) {
+function Card({
+  tone,
+  title,
+  stock = null,
+  children,
+}: {
+  tone: string;
+  title: string;
+  stock?: StockNote | null;
+  children: React.ReactNode;
+}) {
   return (
     <View style={[styles.card, { borderLeftColor: tone }]} accessibilityLiveRegion="polite">
       <Text style={[styles.title, { color: tone }]}>{title}</Text>
       {children}
+      {stock ? <StockLine note={stock} /> : null}
     </View>
   );
+}
+
+function StockLine({ note }: { note: StockNote }) {
+  const [tone, text] = (() => {
+    switch (note.state) {
+      case 'adding':
+        return [colours.muted, 'Adding to stock…'];
+      case 'added':
+        return [colours.gold, `Added to stock. ${note.total} in stock now.`];
+      case 'already':
+        return [colours.muted, 'Already in stock, so not added again.'];
+      case 'failed':
+        return [colours.danger, `Not added to stock. ${note.message}`];
+    }
+  })();
+  return <Text style={[styles.stock, { color: tone }]}>{text}</Text>;
 }
 
 export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null; onClear: () => void }) {
@@ -54,10 +88,10 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
       );
     }
 
-    const { verdict, code, quantity } = outcome;
+    const { verdict, code, quantity, stock } = outcome;
     if (verdict.kind === 'not-here') {
       return (
-        <Card tone={colours.danger} title="Not for this board">
+        <Card tone={colours.danger} title="Not for this board" stock={stock}>
           <Text style={styles.spots}>{code}</Text>
           <Text style={styles.note}>{otherBoardText(outcome.otherBoards)}</Text>
         </Card>
@@ -67,7 +101,7 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
     const { line } = verdict;
     if (verdict.kind === 'leave-empty') {
       return (
-        <Card tone={colours.white} title="Leave this one off">
+        <Card tone={colours.white} title="Leave this one off" stock={stock}>
           <Text style={styles.value}>{line.value ?? code}</Text>
           <Text style={styles.note}>The BOM says do not populate {formatRefs(line.refs)}.</Text>
         </Card>
@@ -75,7 +109,7 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
     }
 
     return (
-      <Card tone={colours.gold} title="Goes on this board">
+      <Card tone={colours.gold} title="Goes on this board" stock={stock}>
         <Text style={styles.value}>{line.value ?? code}</Text>
         {line.description ? <Text style={styles.note}>{line.description}</Text> : null}
         <Text style={styles.spots}>
@@ -105,4 +139,5 @@ const styles = StyleSheet.create({
   value: { marginTop: 2, color: colours.white, fontFamily: fonts.display, fontSize: 17 },
   spots: { marginTop: 3, color: colours.white, fontFamily: fonts.bold, fontSize: 15 },
   note: { color: colours.muted, fontFamily: fonts.body, fontSize: 14 },
+  stock: { marginTop: 6, fontFamily: fonts.bold, fontSize: 14 },
 });

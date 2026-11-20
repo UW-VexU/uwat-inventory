@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDescription } from '../src/description';
+import { describeBomLine, parseDescription } from '../src/description';
 
 describe('parseDescription', () => {
   it.each([
@@ -37,5 +37,44 @@ describe('parseDescription', () => {
 
   it('ignores case', () => {
     expect(parseDescription('res 10k ohm 0603').category).toBe('Resistors');
+  });
+});
+
+describe('describeBomLine', () => {
+  // Lines from the Stella Nova BOM.
+  const line = (ref: string, value: string | null, description: string | null, packageGuess: string | null = null) =>
+    describeBomLine({ ref, value, description, packageGuess });
+
+  it('uses the description alone when it already says the value', () => {
+    expect(line('C1', '10uF 50V', '10 uF 50 V X7R 1210', '1210')).toEqual({
+      description: '10 uF 50 V X7R 1210',
+      category: 'Capacitors',
+      package: '1210',
+    });
+    expect(line('R18', '22', '22 ohm 1% 0603', '0603')?.description).toBe('22 ohm 1% 0603');
+  });
+
+  it('puts the value in front when the description leaves it out', () => {
+    expect(line('R21', '30.1k', 'FB divider bottom, 1% 0603', '0603')).toEqual({
+      description: '30.1k, FB divider bottom, 1% 0603',
+      category: 'Resistors',
+      package: '0603',
+    });
+    expect(line('U2', 'AP63301WU-7', '3.8 to 32 V buck, adjustable, 3 A, 500 kHz')).toMatchObject({
+      description: 'AP63301WU-7, 3.8 to 32 V buck, adjustable, 3 A, 500 kHz',
+      category: 'ICs',
+    });
+  });
+
+  it('tells LEDs and protection parts apart from other diodes', () => {
+    expect(line('D7', 'Orange', '0603 orange LED', '0603')?.category).toBe('LEDs');
+    expect(line('D1', 'SMAJ18A', '18 V standoff unidirectional TVS, 400 W')?.category).toBe('Protection');
+    expect(line('F1', 'PTC 0.5 A 30 V', 'Resettable fuse, 0.5 A hold')?.category).toBe('Protection');
+    expect(line('D2', 'PMEG6020ER', '60 V 2 A Schottky', '1206')?.category).toBe('Diodes');
+  });
+
+  it('falls back to whichever text there is', () => {
+    expect(line('J4', 'Header pins', null)).toMatchObject({ description: 'Header pins', category: 'Connectors' });
+    expect(line('TP1', null, null)).toBeNull();
   });
 });

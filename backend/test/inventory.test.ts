@@ -24,6 +24,17 @@ describe('adding bags', () => {
     });
   });
 
+  it("names a scanned part after its maker's number when nothing describes it", async () => {
+    const client = await signIn();
+    const { body } = await client.post('/api/intake', {
+      partNumber: '296-29034-1-ND',
+      mfrPartNumber: 'INA226AIDGSR',
+      quantity: 12,
+      project: 'U2, U3, U5',
+    });
+    expect(body.part).toMatchObject({ description: 'INA226AIDGSR', partNumber: '296-29034-1-ND', total: 12 });
+  });
+
   it('adds up bags of the same part', async () => {
     const client = await signIn();
     await addBag(client, 5);

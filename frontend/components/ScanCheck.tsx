@@ -1,7 +1,7 @@
 'use client';
 
-import { formatRefs, type BoardLine, type BoardUse, type ScanVerdict } from '@uwat/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatRefs, type BoardLine, type BoardUse, type ScanVerdict, type StockNote } from '@uwat/shared';
+import { useEffect, useRef, useState } from 'react';
 import { formatNumber, plural } from '@/lib/format';
 import { Icon } from './Icon';
 
@@ -12,46 +12,12 @@ export interface ScanResult {
   verdict: ScanVerdict;
   /** Filled in a moment later when a part isn't for this board. */
   otherBoards: BoardUse[] | null;
+  stock: StockNote | null;
 }
 
 const SCAN_INTERVAL_MS = 220;
 /** The camera sees the same label many times a second, so hold off before reading it again. */
 const REPEAT_HOLD_MS = 2500;
-
-/** Remembers what's been found on this computer, so a refresh doesn't lose your place in the box. */
-export function useFoundLines(boardId: string) {
-  const storageKey = `uwat-found-${boardId}`;
-  const [found, setFound] = useState<ReadonlySet<string>>(new Set());
-
-  useEffect(() => {
-    try {
-      setFound(new Set(JSON.parse(localStorage.getItem(storageKey) ?? '[]') as string[]));
-    } catch {
-      setFound(new Set());
-    }
-  }, [storageKey]);
-
-  const save = useCallback(
-    (next: ReadonlySet<string>) => {
-      setFound(next);
-      localStorage.setItem(storageKey, JSON.stringify([...next]));
-    },
-    [storageKey],
-  );
-
-  const markFound = useCallback(
-    (key: string) => {
-      setFound((current) => {
-        const next = new Set(current).add(key);
-        localStorage.setItem(storageKey, JSON.stringify([...next]));
-        return next;
-      });
-    },
-    [storageKey],
-  );
-
-  return { found, markFound, reset: useCallback(() => save(new Set()), [save]) };
-}
 
 function otherBoardText(boards: BoardUse[] | null): string {
   if (boards === null) return 'Checking other boards…';
@@ -75,6 +41,7 @@ export function ScanBanner({
       <Icon name="close" />
     </button>
   );
+  const stock = result.stock ? <StockLine note={result.stock} /> : null;
 
   if (verdict.kind === 'not-here') {
     return (
@@ -85,6 +52,7 @@ export function ScanBanner({
         </header>
         <p className="scan-spots">{code}</p>
         <p className="scan-note">{otherBoardText(result.otherBoards)}</p>
+        {stock}
       </section>
     );
   }
@@ -101,6 +69,7 @@ export function ScanBanner({
         <p className="scan-note">
           {boardName} has a spot for it at {formatRefs(line.refs)}, but the BOM says do not populate.
         </p>
+        {stock}
       </section>
     );
   }
@@ -122,32 +91,43 @@ export function ScanBanner({
           {quantity < line.refs.length ? `, which isn't enough for one board.` : '.'}
         </p>
       ) : null}
+      {stock}
     </section>
   );
 }
 
+function StockLine({ note }: { note: StockNote }) {
+  const text = {
+    adding: 'Adding to stock…',
+    added: note.state === 'added' ? `Added to stock. ${formatNumber(note.total)} in stock now.` : '',
+    already: 'Already in stock, so not added again.',
+    failed: note.state === 'failed' ? `Not added to stock. ${note.message}` : '',
+  }[note.state];
+  return <p className={`scan-stock scan-stock-${note.state}`}>{text}</p>;
+}
+
+/** The board's parts, missing ones first. A part is ticked once it's in stock, whoever scanned it. */
 export function Checklist({
   lines,
-  found,
   onPick,
-  onReset,
   onClose,
 }: {
   lines: readonly BoardLine[];
-  found: ReadonlySet<string>;
   onPick: (refs: string[]) => void;
-  onReset: () => void;
   onClose: () => void;
 }) {
-  const waiting = lines.filter((line) => !found.has(line.key));
-  const done = lines.filter((line) => found.has(line.key));
+  const waiting = lines.filter((line) => line.stock === 0);
+  const done = lines.filter((line) => line.stock > 0);
 
   const row = (line: BoardLine, finished: boolean) => (
     <li key={line.key} className={finished ? 'is-found' : undefined}>
       <button type="button" onClick={() => onPick(line.refs)}>
         <span aria-hidden="true">{finished ? '✓' : '□'}</span>
         <span>{line.value ?? line.partNumber ?? line.mfrPartNumber}</span>
-        <small>{formatRefs(line.refs)}</small>
+        <small>
+          {formatRefs(line.refs)}
+          {finished ? ` · ${formatNumber(line.stock)} in stock` : null}
+        </small>
       </button>
     </li>
   );
@@ -155,7 +135,7 @@ export function Checklist({
   return (
     <aside className="checklist" aria-label="Parts for this board">
       <header>
-        <h2>{waiting.length === 0 ? 'Everything found' : `${waiting.length} still to find`}</h2>
+        <h2>{waiting.length === 0 ? 'Everything in stock' : `${waiting.length} not in stock yet`}</h2>
         <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
           <Icon name="close" />
         </button>
@@ -164,11 +144,6 @@ export function Checklist({
         {waiting.map((line) => row(line, false))}
         {done.map((line) => row(line, true))}
       </ul>
-      <footer>
-        <button type="button" className="link-button" disabled={done.length === 0} onClick={onReset}>
-          Start over
-        </button>
-      </footer>
     </aside>
   );
 }
