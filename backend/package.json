@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "tsx --env-file=.env scripts/seed.ts"
+    "db:seed": "tsx --env-file=.env scripts/seed.ts",
+    "db:clear-stock": "tsx --env-file=.env scripts/clear-stock.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.16.3",
