@@ -4,6 +4,7 @@ import {
   judgeScan,
   type BagLabel,
   type BoardDetail,
+  type BoardLine,
   type BoardSide,
   type BoardUse,
   type PartSummary,
@@ -13,14 +14,15 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Device from 'expo-device';
 import * as Haptics from 'expo-haptics';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { canScanPhotos, LabelScannerView, liveScanSupported, scanPhoto, type ScannedCode } from '../../modules/label-scanner';
-import { api, ApiFailure } from '../../src/api';
+import { api, ApiFailure, newRequestId } from '../../src/api';
 import { BoardPreview } from '../../src/BoardPreview';
 import { Checklist } from '../../src/Checklist';
+import { PartSheet } from '../../src/PartSheet';
 import { colours, fonts } from '../../src/theme';
 import { VerdictCard, type ScanOutcome } from '../../src/VerdictCard';
 
@@ -36,8 +38,8 @@ function logScan(raw: string, result: string) {
   if (SCAN_LOG) void api('/api/debug/scan', { method: 'POST', body: { raw, result } }).catch(() => undefined);
 }
 
-/** Identifies one send to the server, so a retry after a dropped connection isn't counted twice. */
-const newRequestId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+/** The phone can't hear the website's live feed, so it checks back this often while the board is open. */
+const REFRESH_MS = 15_000;
 
 export default function CheckScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -48,6 +50,7 @@ export default function CheckScreen() {
   const [torch, setTorch] = useState(false);
   const [closeUp, setCloseUp] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
+  const [sheetPartId, setSheetPartId] = useState<string | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraProblem, setCameraProblem] = useState<string | null>(null);
   // Apple's own scanner where the phone has it: it reads small square codes far better.
@@ -66,13 +69,25 @@ export default function CheckScreen() {
   // and each bag should only be added once.
   const sent = useRef(new Map<string, { requestId: string; note: StockNote }>());
 
+  const loaded = useRef(false);
   const load = useCallback(() => {
     api<BoardDetail>(`/api/boards/${id}`)
-      .then(setDetail)
-      .catch((error: Error) => setProblem(error.message));
+      .then((next) => {
+        loaded.current = true;
+        setDetail(next);
+      })
+      // Once the board is showing, a missed refresh just waits for the next one.
+      .catch((error: Error) => (loaded.current ? undefined : setProblem(error.message)));
   }, [id]);
 
-  useEffect(load, [load]);
+  // Picks up ticks and stock changes made on other phones or the website.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      const timer = setInterval(load, REFRESH_MS);
+      return () => clearInterval(timer);
+    }, [load]),
+  );
 
   useEffect(
     () => () => {
@@ -89,12 +104,37 @@ export default function CheckScreen() {
 
   const placements = useMemo<readonly PlacementView[]>(() => detail?.placements ?? [], [detail]);
   const lines = useMemo(() => boardLines(placements), [placements]);
-  // Found means in stock, so every phone and the website agree on what's still missing.
-  const foundCount = lines.filter((line) => line.stock > 0).length;
-  const done = useMemo(() => lines.filter((line) => line.stock > 0).flatMap((line) => line.refs), [lines]);
+  // Progress is what's soldered on. It's shared, so every phone and the website agree.
+  const placedCount = lines.filter((line) => line.placed).length;
+  const done = useMemo(() => lines.filter((line) => line.placed).flatMap((line) => line.refs), [lines]);
 
   const verdict = outcome?.kind === 'judged' ? outcome.verdict : null;
   const lit = useMemo(() => (verdict && verdict.kind !== 'not-here' ? verdict.line.refs : []), [verdict]);
+  // The line as it is now, since the one judged at scan time doesn't see later ticks.
+  const scannedLine = verdict?.kind === 'fits' ? (lines.find((line) => line.key === verdict.line.key) ?? verdict.line) : null;
+  const stockNote = outcome?.kind === 'judged' ? outcome.stock : null;
+  const scannedPartId =
+    (stockNote?.state === 'added' || stockNote?.state === 'already' ? stockNote.partId : null) ?? scannedLine?.partId ?? null;
+
+  /** Ticks a part off as soldered, or back. Shows it straight away, then confirms with the server. */
+  const togglePlaced = useCallback(
+    (line: BoardLine) => {
+      const placed = !line.placed;
+      setDetail((current) =>
+        current && {
+          ...current,
+          placements: current.placements.map((spot) =>
+            line.refs.includes(spot.ref) && !spot.dnp ? { ...spot, placed } : spot,
+          ),
+        },
+      );
+      void Haptics.selectionAsync();
+      api(`/api/boards/${id}/placed`, { method: 'POST', body: { refs: line.refs, placed } })
+        .catch((error: Error) => Alert.alert("Couldn't save that", error.message))
+        .finally(load);
+    },
+    [id, load],
+  );
 
   /** Every real bag label that gets scanned goes into the inventory, whichever board it's for. */
   const addToStock = useCallback((code: string, raw: string, label: BagLabel): StockNote => {
@@ -108,7 +148,7 @@ export default function CheckScreen() {
       setOutcome((current) => (current?.kind === 'judged' && current.code === code ? { ...current, stock: note } : current));
     };
     sent.current.set(key, { requestId, note: { state: 'adding' } });
-    api<{ part: PartSummary }>('/api/intake', {
+    api<{ part: PartSummary; bagId: string }>('/api/intake', {
       method: 'POST',
       body: {
         partNumber: label.partNumber,
@@ -119,13 +159,20 @@ export default function CheckScreen() {
         requestId,
       },
     })
-      .then(({ part }) => {
-        settle({ state: 'added', total: part.total });
+      .then(({ part, bagId }) => {
+        settle({ state: 'added', total: part.total, partId: part.id, bagId });
         // Picks up the new stock on this board's spots and checklist.
         load();
       })
       .catch((error: unknown) => {
-        if (error instanceof ApiFailure && error.status === 409) settle({ state: 'already' });
+        if (error instanceof ApiFailure && error.status === 409) {
+          const { partId, bagId } = error.details;
+          settle({
+            state: 'already',
+            partId: typeof partId === 'string' ? partId : null,
+            bagId: typeof bagId === 'string' ? bagId : null,
+          });
+        }
         else settle({ state: 'failed', message: (error as Error).message });
       });
     return { state: 'adding' };
@@ -250,8 +297,8 @@ export default function CheckScreen() {
           {detail.board.revision ? <Text style={styles.rev}> rev {detail.board.revision}</Text> : null}
         </Text>
         <Pressable style={styles.progress} onPress={() => setChecklistOpen(true)} accessibilityRole="button">
-          <Text style={styles.progressCount}>{foundCount}</Text>
-          <Text style={styles.progressText}> of {lines.length}</Text>
+          <Text style={styles.progressCount}>{placedCount}</Text>
+          <Text style={styles.progressText}> of {lines.length} on</Text>
         </Pressable>
       </View>
 
@@ -345,7 +392,14 @@ export default function CheckScreen() {
         accessibilityLabel="Type a part number"
       />
 
-      <VerdictCard outcome={outcome} onClear={() => setOutcome(null)} />
+      <VerdictCard
+        outcome={outcome}
+        onClear={() => setOutcome(null)}
+        placed={scannedLine ? scannedLine.placed : null}
+        onTogglePlaced={scannedLine ? () => togglePlaced(scannedLine) : undefined}
+        onEditStock={scannedPartId ? () => setSheetPartId(scannedPartId) : null}
+        onStockChanged={load}
+      />
 
       <View style={styles.board}>
         <BoardPreview
@@ -357,7 +411,14 @@ export default function CheckScreen() {
         />
       </View>
 
-      <Checklist visible={checklistOpen} lines={lines} onClose={() => setChecklistOpen(false)} />
+      <Checklist
+        visible={checklistOpen}
+        lines={lines}
+        onClose={() => setChecklistOpen(false)}
+        onTogglePlaced={togglePlaced}
+        onStockChanged={load}
+      />
+      <PartSheet partId={sheetPartId} onClose={() => setSheetPartId(null)} onChanged={load} />
     </SafeAreaView>
   );
 }

@@ -157,7 +157,7 @@ export default function BoardsPage() {
                   {board.revision ? <small> rev {board.revision}</small> : null}
                 </span>
                 <span className="muted">
-                  {board.stockedCount} of {board.lineCount} parts in stock
+                  {board.placedCount} of {board.lineCount} parts on the board · {board.stockedCount} in stock
                 </span>
               </Link>
             </li>

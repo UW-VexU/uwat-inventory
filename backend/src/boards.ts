@@ -31,6 +31,7 @@ const uploadBody = z.object({
 const bomBody = z.object({ text: z.string().min(1) });
 const whichQuery = z.object({ partNumber: z.string().max(120).optional(), mfrPartNumber: z.string().max(120).optional() });
 const linkBody = z.object({ refs: z.array(z.string().max(16)).min(1).max(500), partId: z.string().nullable() });
+const placedBody = z.object({ refs: z.array(z.string().max(16)).min(1).max(500), placed: z.boolean() });
 
 const placementInclude = {
   part: {
@@ -58,6 +59,7 @@ function toPlacementView(row: PlacementRow): PlacementView {
     bomDescription: row.bomDescription,
     bomPartNumber: row.bomPartNumber,
     bomMfrNumber: row.bomMfrNumber,
+    placed: row.placedAt !== null,
     part: row.part
       ? {
           id: row.part.id,
@@ -97,6 +99,7 @@ function toSummary(board: SummaryRow): BoardSummary {
     placementCount: board.placements.length,
     lineCount: lines.length,
     stockedCount: lines.filter((line) => line.stock > 0).length,
+    placedCount: lines.filter((line) => line.placed).length,
   };
 }
 
@@ -342,6 +345,18 @@ export function boardRoutes(): Router {
     });
     if (updated.count === 0) throw notFound('Spot');
     res.json({ linked: updated.count });
+  });
+
+  /** Ticks spots off as soldered, or back. Leaves stock alone: the parts may come from an older bag. */
+  router.post('/boards/:id/placed', async (req, res) => {
+    const { refs, placed } = parse(placedBody, req.body);
+    const updated = await prisma.placement.updateMany({
+      // Spots the BOM leaves empty never get ticked.
+      where: { boardId: req.params.id, ref: { in: refs }, dnp: false },
+      data: { placedAt: placed ? new Date() : null },
+    });
+    if (updated.count === 0) throw notFound('Spot');
+    res.json({ board: await loadSummary(req.params.id) });
   });
 
   router.delete('/boards/:id', async (req, res) => {

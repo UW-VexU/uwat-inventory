@@ -136,7 +136,7 @@ function Boards() {
               {item.revision ? <Text style={styles.cardRev}> rev {item.revision}</Text> : null}
             </Text>
             <Text style={styles.note}>
-              {item.stockedCount} of {item.lineCount} parts in stock
+              {item.placedCount} of {item.lineCount} parts on the board · {item.stockedCount} in stock
             </Text>
           </Pressable>
         )}

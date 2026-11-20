@@ -158,6 +158,8 @@ model Placement {
   bomMfrNumber  String?
   /// The BOM says to leave this spot empty.
   dnp           Boolean @default(false)
+  /// Ticked off as soldered on the board. Separate from stock: parts may come from an older bag.
+  placedAt      DateTime?
 
   @@unique([boardId, ref])
   @@index([partId])

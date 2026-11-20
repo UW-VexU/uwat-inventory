@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   boardLines,
+  lineStatus,
   checkBag,
   connectionsOf,
   describeRole,
@@ -463,5 +464,23 @@ describe('boardLines', () => {
       line('TP1', {}),
     ]);
     expect(lines.map((item) => item.refs)).toEqual([['C1'], ['R3', 'R10']]);
+  });
+
+  it('counts a part as on the board only once every one of its spots is ticked off', () => {
+    const stocked = { id: 'p1', partNumber: 'A-ND', description: '10k', total: 50, boxes: [] };
+    const [half] = boardLines([
+      line('R1', { bomPartNumber: 'A-ND', part: stocked, placed: true }),
+      line('R2', { bomPartNumber: 'A-ND', part: stocked }),
+    ]);
+    expect(half).toMatchObject({ partId: 'p1', stock: 50, placed: false });
+    expect(lineStatus(half!)).toBe('in-stock');
+
+    const [whole] = boardLines([
+      line('R1', { bomPartNumber: 'A-ND', placed: true }),
+      line('R2', { bomPartNumber: 'A-ND', placed: true }),
+    ]);
+    // Soldered from an old bag, so it's done even with nothing in stock.
+    expect(lineStatus(whole!)).toBe('placed');
+    expect(lineStatus({ stock: 0, placed: false })).toBe('needed');
   });
 });

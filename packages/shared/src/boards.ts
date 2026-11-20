@@ -37,6 +37,8 @@ export interface PlacementView extends PlacementGeometry {
   bomPartNumber: string | null;
   bomMfrNumber: string | null;
   part: LinkedPart | null;
+  /** Ticked off as soldered on the board. */
+  placed?: boolean;
 }
 
 export interface BoardSummary {
@@ -52,6 +54,8 @@ export interface BoardSummary {
   lineCount: number;
   /** How many of those are in stock. */
   stockedCount: number;
+  /** How many of those are ticked off as on the board. */
+  placedCount: number;
 }
 
 export interface BoardDetail {
@@ -376,6 +380,18 @@ export interface BoardLine {
   refs: string[];
   /** How many are in stock. A line counts as found once this is above zero. */
   stock: number;
+  /** The inventory part these spots are linked to, if any has arrived. */
+  partId: string | null;
+  /** Every spot for this part is ticked off as soldered. */
+  placed: boolean;
+}
+
+export type LineStatus = 'needed' | 'in-stock' | 'placed';
+
+/** Where a part stands for building the board. On the board wins, whatever the stock says. */
+export function lineStatus(line: Pick<BoardLine, 'stock' | 'placed'>): LineStatus {
+  if (line.placed) return 'placed';
+  return line.stock > 0 ? 'in-stock' : 'needed';
 }
 
 export type ScanVerdict =
@@ -394,6 +410,8 @@ function toLine(spots: readonly PlacementView[]): BoardLine | null {
     mfrPartNumber: first.bomMfrNumber,
     refs: spots.map((spot) => spot.ref).sort(compareRefs),
     stock: Math.max(0, ...spots.map((spot) => spot.part?.total ?? 0)),
+    partId: spots.find((spot) => spot.part)?.part?.id ?? null,
+    placed: spots.every((spot) => spot.placed === true),
   };
 }
 

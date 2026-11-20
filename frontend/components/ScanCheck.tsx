@@ -1,6 +1,7 @@
 'use client';
 
-import { formatRefs, type BoardLine, type BoardUse, type ScanVerdict, type StockNote } from '@uwat/shared';
+import { formatRefs, lineStatus, type BoardLine, type BoardUse, type LineStatus, type ScanVerdict, type StockNote } from '@uwat/shared';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { formatNumber, plural } from '@/lib/format';
 import { Icon } from './Icon';
@@ -26,14 +27,38 @@ function otherBoardText(boards: BoardUse[] | null): string {
   return boards.map((use) => `Goes on ${use.boardName}: ${formatRefs(use.refs)}`).join('. ');
 }
 
-export function ScanBanner({ result, onClose }: { result: ScanResult; onClose: () => void }) {
+export function ScanBanner({
+  result,
+  onClose,
+  placed = null,
+  onTogglePlaced,
+  partId = null,
+}: {
+  result: ScanResult;
+  onClose: () => void;
+  /** Whether this board's part is ticked off as soldered. Null when the banner isn't about one. */
+  placed?: boolean | null;
+  onTogglePlaced?: () => void;
+  /** The inventory part, once known, for a link to its stock. */
+  partId?: string | null;
+}) {
   const { verdict, code, quantity } = result;
   const dismiss = (
     <button type="button" className="icon-button" aria-label="Dismiss" onClick={onClose}>
       <Icon name="close" />
     </button>
   );
-  const stock = result.stock ? <StockLine note={result.stock} /> : null;
+  const editStock = partId ? (
+    <Link className="button" href={`/?part=${partId}`}>
+      Edit stock
+    </Link>
+  ) : null;
+  const stock = (
+    <>
+      {result.stock ? <StockLine note={result.stock} /> : null}
+      {editStock ? <div className="scan-actions">{editStock}</div> : null}
+    </>
+  );
 
   if (verdict.kind === 'not-here') {
     return (
@@ -78,7 +103,20 @@ export function ScanBanner({ result, onClose }: { result: ScanResult; onClose: (
       {quantity !== null && quantity < line.refs.length ? (
         <p className="scan-note">Only {formatNumber(quantity)} in this bag, not enough for one board.</p>
       ) : null}
-      {stock}
+      {result.stock ? <StockLine note={result.stock} /> : null}
+      <div className="scan-actions">
+        {placed !== null && onTogglePlaced ? (
+          <button
+            type="button"
+            className={placed ? 'button button-primary' : 'button'}
+            aria-pressed={placed}
+            onClick={onTogglePlaced}
+          >
+            {placed ? '✓ On the board' : 'Mark as on the board'}
+          </button>
+        ) : null}
+        {editStock}
+      </div>
     </section>
   );
 }
@@ -93,44 +131,77 @@ function StockLine({ note }: { note: StockNote }) {
   return <p className={`scan-stock scan-stock-${note.state}`}>{text}</p>;
 }
 
-/** The board's parts, missing ones first. A part is ticked once it's in stock, whoever scanned it. */
+const SECTIONS: ReadonlyArray<{ status: LineStatus; title: string }> = [
+  { status: 'needed', title: 'Still needed' },
+  { status: 'in-stock', title: 'In stock, not on the board yet' },
+  { status: 'placed', title: 'On the board' },
+];
+
+/**
+ * The board's parts, by where they stand. The box ticks a part off as soldered, for everyone.
+ * Clicking the name lights its spots on the board.
+ */
 export function Checklist({
   lines,
   onPick,
+  onTogglePlaced,
   onClose,
 }: {
   lines: readonly BoardLine[];
   onPick: (refs: string[]) => void;
+  onTogglePlaced: (line: BoardLine) => void;
   onClose: () => void;
 }) {
-  const waiting = lines.filter((line) => line.stock === 0);
-  const done = lines.filter((line) => line.stock > 0);
-
-  const row = (line: BoardLine, finished: boolean) => (
-    <li key={line.key} className={finished ? 'is-found' : undefined}>
-      <button type="button" onClick={() => onPick(line.refs)}>
-        <span aria-hidden="true">{finished ? '✓' : '□'}</span>
-        <span>{line.value ?? line.partNumber ?? line.mfrPartNumber}</span>
-        <small>
-          {formatRefs(line.refs)}
-          {finished ? ` · ${formatNumber(line.stock)} in stock` : null}
-        </small>
-      </button>
-    </li>
-  );
+  const placed = lines.filter((line) => line.placed).length;
+  const stocked = lines.filter((line) => lineStatus(line) === 'in-stock').length;
 
   return (
     <aside className="checklist" aria-label="Parts for this board">
       <header>
-        <h2>{waiting.length === 0 ? 'Everything in stock' : `${waiting.length} not in stock yet`}</h2>
+        <div>
+          <h2>
+            {placed} of {lines.length} on the board
+          </h2>
+          <p>
+            {stocked} in stock to fit · {lines.length - placed - stocked} still needed
+          </p>
+        </div>
         <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
           <Icon name="close" />
         </button>
       </header>
-      <ul>
-        {waiting.map((line) => row(line, false))}
-        {done.map((line) => row(line, true))}
-      </ul>
+      <div className="checklist-body">
+        {SECTIONS.map(({ status, title }) => {
+          const group = lines.filter((line) => lineStatus(line) === status);
+          if (group.length === 0) return null;
+          return (
+            <section key={status}>
+              <h3>{title}</h3>
+              <ul>
+                {group.map((line) => {
+                  const name = line.value ?? line.partNumber ?? line.mfrPartNumber ?? line.refs.join(', ');
+                  return (
+                    <li key={line.key} className={line.placed ? 'is-found' : undefined}>
+                      <input
+                        type="checkbox"
+                        checked={line.placed}
+                        onChange={() => onTogglePlaced(line)}
+                        aria-label={`${name} is on the board`}
+                      />
+                      <button type="button" onClick={() => onPick(line.refs)}>
+                        <span>{name}</span>
+                        <small>
+                          {formatRefs(line.refs)} · {line.stock > 0 ? `${formatNumber(line.stock)} in stock` : 'none in stock'}
+                        </small>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
     </aside>
   );
 }

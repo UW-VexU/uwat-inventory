@@ -3,6 +3,8 @@ export class ApiFailure extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** Anything else the server said, like which bag a repeat scan matched. */
+    readonly details: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -28,7 +30,7 @@ export async function api<T>(path: string, { method = 'GET', body }: RequestOpti
   }
 
   const data = (await response.json().catch(() => null)) as
-    | (T & { error?: { code: string; message: string } })
+    | (T & { error?: { code: string; message: string } & Record<string, unknown> })
     | null;
   if (response.ok) return data as T;
 
@@ -37,6 +39,7 @@ export async function api<T>(path: string, { method = 'GET', body }: RequestOpti
     response.status,
     data?.error?.code ?? 'server_error',
     data?.error?.message ?? 'Something went wrong on the server.',
+    data?.error ?? {},
   );
 }
 

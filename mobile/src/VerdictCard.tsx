@@ -27,19 +27,40 @@ function Card({
   tone,
   title,
   stock = null,
+  onStockChanged,
+  actions = null,
   children,
 }: {
   tone: string;
   title: string;
   stock?: StockNote | null;
+  onStockChanged?: () => void;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  // Which box the bag lives in, or a way to file it, once the inventory knows the bag.
+  const bag = stock?.state === 'added' || stock?.state === 'already' ? stock : null;
   return (
     <View style={[styles.card, { borderLeftColor: tone }]} accessibilityLiveRegion="polite">
       <Text style={[styles.title, { color: tone }]}>{title}</Text>
       {children}
       {stock ? <StockLine note={stock} /> : null}
+      {actions ? <View style={styles.actions}>{actions}</View> : null}
     </View>
+  );
+}
+
+function Action({ label, on = false, onPress }: { label: string; on?: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.action, on && styles.actionOn]}
+      accessibilityRole="button"
+      accessibilityState={{ checked: on }}
+      hitSlop={4}
+    >
+      <Text style={[styles.actionText, on && styles.actionTextOn]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -59,8 +80,21 @@ function StockLine({ note }: { note: StockNote }) {
   return <Text style={[styles.stock, { color: tone }]}>{text}</Text>;
 }
 
-export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null; onClear: () => void }) {
+interface Props {
+  outcome: ScanOutcome | null;
+  onClear: () => void;
+  /** Whether this board's part is ticked off as soldered. Null when the card isn't about one. */
+  placed?: boolean | null;
+  onTogglePlaced?: () => void;
+  /** Opens the part's stock, once the inventory knows which part it is. */
+  onEditStock?: (() => void) | null;
+  /** After the card files the bag into a box. */
+  onStockChanged?: () => void;
+}
+
+export function VerdictCard({ outcome, onClear, placed = null, onTogglePlaced, onEditStock = null, onStockChanged }: Props) {
   if (!outcome) return null;
+  const editStock = onEditStock ? <Action label="Edit stock" onPress={onEditStock} /> : null;
 
   const body = (() => {
     if (outcome.kind === 'no-code') {
@@ -85,7 +119,7 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
     const { verdict, code, quantity, stock } = outcome;
     if (verdict.kind === 'not-here') {
       return (
-        <Card tone={colours.danger} title="Not for this board" stock={stock}>
+        <Card tone={colours.danger} title="Not for this board" stock={stock} onStockChanged={onStockChanged} actions={editStock}>
           <Text style={styles.spots}>{code}</Text>
           <Text style={styles.note}>{otherBoardText(outcome.otherBoards)}</Text>
         </Card>
@@ -95,7 +129,7 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
     const { line } = verdict;
     if (verdict.kind === 'leave-empty') {
       return (
-        <Card tone={colours.white} title="Leave this one off" stock={stock}>
+        <Card tone={colours.white} title="Leave this one off" stock={stock} onStockChanged={onStockChanged} actions={editStock}>
           <Text style={styles.value}>{line.value ?? code}</Text>
           <Text style={styles.note}>The BOM says do not populate {formatRefs(line.refs)}.</Text>
         </Card>
@@ -103,7 +137,20 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
     }
 
     return (
-      <Card tone={colours.gold} title="Goes on this board" stock={stock}>
+      <Card
+        tone={colours.gold}
+        title="Goes on this board"
+        stock={stock}
+        onStockChanged={onStockChanged}
+        actions={
+          <>
+            {placed !== null && onTogglePlaced ? (
+              <Action label={placed ? '✓ On the board' : 'Mark as on the board'} on={placed} onPress={onTogglePlaced} />
+            ) : null}
+            {editStock}
+          </>
+        }
+      >
         <Text style={styles.value}>{line.value ?? code}</Text>
         {line.description ? (
           <Text style={styles.note} numberOfLines={2}>
@@ -121,7 +168,8 @@ export function VerdictCard({ outcome, onClear }: { outcome: ScanOutcome | null;
   })();
 
   return (
-    <Pressable onPress={onClear} accessibilityHint="Clears this result">
+    // Not one accessibility element, or iOS would hide the card's own buttons inside it.
+    <Pressable onPress={onClear} accessible={false}>
       {body}
     </Pressable>
   );
@@ -134,4 +182,9 @@ const styles = StyleSheet.create({
   spots: { marginTop: 3, color: colours.white, fontFamily: fonts.bold, fontSize: 15 },
   note: { color: colours.muted, fontFamily: fonts.body, fontSize: 14 },
   stock: { marginTop: 6, fontFamily: fonts.bold, fontSize: 14 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  action: { paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: colours.lineStrong },
+  actionOn: { borderColor: colours.gold, backgroundColor: colours.gold },
+  actionText: { color: colours.white, fontFamily: fonts.medium, fontSize: 14 },
+  actionTextOn: { color: colours.ink, fontFamily: fonts.bold },
 });

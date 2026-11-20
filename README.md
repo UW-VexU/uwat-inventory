@@ -91,7 +91,7 @@ A box often holds parts for several boards. Open the board you're building, then
 - **Not for this board** names the board it belongs to, if that board has been uploaded.
 - **Leave this one off** means the BOM marks that spot do not populate.
 
-Scan with a USB scanner, which works wherever the focus is, or with the camera button. The camera needs HTTPS, or localhost. Parts are matched on the DigiKey number, then the maker's number, because one part can be sold under several DigiKey numbers. Every bag label scanned here, or on a phone, goes into stock, whichever board it's for. Scanning the same label again won't add it twice. **In stock** counts the board's parts that have stock, the same number the boards list and the phone show, and lists what's still missing. Parts in stock stay marked on the board.
+Scan with a USB scanner, which works wherever the focus is, or with the camera button. The camera needs HTTPS, or localhost. Parts are matched on the DigiKey number, then the maker's number, because one part can be sold under several DigiKey numbers. Every bag label scanned here, or on a phone, goes into stock, whichever board it's for. Scanning the same label again won't add it twice. The board keeps a checklist, shared by everyone: each part is still needed, in stock, or on the board. Tick a part off as soldered from the scan result or the checklist. The count shows how many parts are on the board, the same number the boards list and the phone show, and ticked parts stay marked on the drawing. Ticking doesn't change stock, since the parts may have come from an older bag.
 
 A bag label has no description, so a new part takes its name from a board's BOM line when one lists it, and otherwise from the maker's number.
 
@@ -113,7 +113,7 @@ Lines like "Pull-up on SD_CMD" are worked out from the wiring alone, so treat th
 
 ## Phone app
 
-The Expo app in `mobile/` does the board check: pick a board, scan each item from the box, and see if it belongs. Each bag it scans is added to stock and shows up on the website straight away. It works on iOS and Android, and shares its logic with the website through `packages/shared`.
+The Expo app in `mobile/` does the board check: pick a board, scan each item from the box, and see if it belongs. Each bag it scans is added to stock and shows up on the website straight away. From the scan result or the checklist you can tick a part off as on the board, or open its stock to take, add or count, move a bag to another box, or remove it. It works on iOS and Android, and shares its logic with the website through `packages/shared`.
 
 To try it on a phone, install Expo Go, put the phone on the same network as this computer, then:
 

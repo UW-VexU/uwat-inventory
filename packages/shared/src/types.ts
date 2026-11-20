@@ -72,8 +72,8 @@ export interface InventorySnapshot {
 /** What happened to a scanned bag label in the inventory. Typed part numbers aren't bags, so they get none. */
 export type StockNote =
   | { state: 'adding' }
-  | { state: 'added'; total: number }
-  | { state: 'already' }
+  | { state: 'added'; total: number; partId: string; bagId: string }
+  | { state: 'already'; partId: string | null; bagId: string | null }
   | { state: 'failed'; message: string };
 
 /** Sent down /api/live whenever stock changes, so open pages can catch up straight away. */

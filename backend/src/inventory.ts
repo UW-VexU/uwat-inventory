@@ -9,6 +9,7 @@ import {
   parseDescription,
   type BagSummary,
   type BoardUse,
+  type BoxSummary,
   type InventorySnapshot,
   type LiveMessage,
   type PartSummary,
@@ -140,19 +141,20 @@ function toSummary(part: PartRow): PartSummary {
   };
 }
 
+async function loadBoxes(): Promise<BoxSummary[]> {
+  const boxes = await prisma.box.findMany({
+    orderBy: { code: 'asc' },
+    include: { _count: { select: { bags: { where: { archivedAt: null } } } } },
+  });
+  return boxes.map((box) => ({ id: box.id, code: box.code, label: box.label, bagCount: box._count.bags }));
+}
+
 export async function loadSnapshot(): Promise<InventorySnapshot> {
   const [parts, boxes] = await Promise.all([
     prisma.part.findMany({ where: { archivedAt: null }, include: partInclude }),
-    prisma.box.findMany({
-      orderBy: { code: 'asc' },
-      include: { _count: { select: { bags: { where: { archivedAt: null } } } } },
-    }),
+    loadBoxes(),
   ]);
-  return {
-    parts: parts.map(toSummary),
-    boxes: boxes.map((box) => ({ id: box.id, code: box.code, label: box.label, bagCount: box._count.bags })),
-    generatedAt: new Date().toISOString(),
-  };
+  return { parts: parts.map(toSummary), boxes, generatedAt: new Date().toISOString() };
 }
 
 async function partSummary(id: string): Promise<PartSummary> {
@@ -287,6 +289,15 @@ export function inventoryRoutes(): Router {
 
   router.get('/inventory', async (_req, res) => {
     res.json(await loadSnapshot());
+  });
+
+  /** One part with its bags, for the phone, which doesn't load the whole inventory. */
+  router.get('/parts/:id', async (req, res) => {
+    res.json({ part: await partSummary(req.params.id) });
+  });
+
+  router.get('/boxes', async (_req, res) => {
+    res.json({ boxes: await loadBoxes() });
   });
 
   router.post('/intake', async (req, res) => {

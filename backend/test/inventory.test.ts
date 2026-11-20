@@ -35,6 +35,16 @@ describe('adding bags', () => {
     expect(body.part).toMatchObject({ description: 'INA226AIDGSR', partNumber: '296-29034-1-ND', total: 12 });
   });
 
+  it('looks up one part with its bags, and lists the boxes, for the phone', async () => {
+    const client = await signIn();
+    const box = (await client.post('/api/boxes', { code: 'B-03' })).body.boxes[0];
+    const { partId } = await addBag(client, 7, { boxId: box.id });
+
+    expect((await client.get(`/api/parts/${partId}`)).body.part).toMatchObject({ total: 7, bags: [{ quantity: 7, box: { code: 'B-03' } }] });
+    expect((await client.get('/api/parts/nope')).status).toBe(404);
+    expect((await client.get('/api/boxes')).body.boxes).toEqual([{ id: box.id, code: 'B-03', label: null, bagCount: 1 }]);
+  });
+
   it('adds up bags of the same part', async () => {
     const client = await signIn();
     await addBag(client, 5);

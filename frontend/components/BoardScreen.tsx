@@ -12,6 +12,7 @@ import {
   type BoardSide,
   type BoardSummary,
   type BagLabel,
+  type BoardLine,
   type BoardUse,
   type ImportProblem,
   type PartSummary,
@@ -108,9 +109,37 @@ export function BoardScreen() {
   );
   const matches = scanRefs ?? typedMatches;
   const lines = useMemo(() => boardLines(placements), [placements]);
-  // Found means in stock, so this page, the boards list and every phone agree.
-  const doneRefs = useMemo(() => new Set(lines.filter((line) => line.stock > 0).flatMap((line) => line.refs)), [lines]);
-  const foundCount = lines.filter((line) => line.stock > 0).length;
+  // Progress is what's soldered on. It's shared, so this page, the boards list and every phone agree.
+  const doneRefs = useMemo(() => new Set(lines.filter((line) => line.placed).flatMap((line) => line.refs)), [lines]);
+  const placedCount = lines.filter((line) => line.placed).length;
+  // The line as it is now, since the one judged at scan time doesn't see later ticks.
+  const scanVerdict = scan?.verdict;
+  const scannedLine =
+    scanVerdict?.kind === 'fits' ? (lines.find((line) => line.key === scanVerdict.line.key) ?? scanVerdict.line) : null;
+  const scannedPartId =
+    (scan?.stock?.state === 'added' || scan?.stock?.state === 'already' ? scan.stock.partId : null) ??
+    scannedLine?.partId ??
+    null;
+
+  /** Ticks a part off as soldered, or back. Shows it straight away, then confirms with the server. */
+  const togglePlaced = useCallback(
+    async (line: BoardLine) => {
+      const placed = !line.placed;
+      setDetail((current) =>
+        current && {
+          ...current,
+          placements: current.placements.map((spot) => (line.refs.includes(spot.ref) && !spot.dnp ? { ...spot, placed } : spot)),
+        },
+      );
+      try {
+        await api(`/api/boards/${id}/placed`, { method: 'POST', body: { refs: line.refs, placed } });
+      } catch (error) {
+        toast(errorMessage(error), { tone: 'error' });
+      }
+      await load();
+    },
+    [id, load, toast],
+  );
   // Bags sent to stock on this visit. The camera keeps seeing a label while it's in view.
   const sent = useRef(new Map<string, { requestId: string; note: StockNote }>());
   const spotsBySide = useMemo(() => new Map(placements.map((spot) => [spot.ref, spot.side])), [placements]);
@@ -149,7 +178,7 @@ export function BoardScreen() {
         setScan((current) => (current?.id === scanId ? { ...current, stock: note } : current));
       };
       sent.current.set(key, { requestId, note: { state: 'adding' } });
-      api<{ part: PartSummary }>('/api/intake', {
+      api<{ part: PartSummary; bagId: string }>('/api/intake', {
         method: 'POST',
         body: {
           partNumber: label.partNumber,
@@ -160,13 +189,20 @@ export function BoardScreen() {
           requestId,
         },
       })
-        .then(({ part }) => {
-          settle({ state: 'added', total: part.total });
+        .then(({ part, bagId }) => {
+          settle({ state: 'added', total: part.total, partId: part.id, bagId });
           applyPart(part);
           void load();
         })
         .catch((error: unknown) => {
-          if (error instanceof ApiFailure && error.code === 'duplicate_label') settle({ state: 'already' });
+          if (error instanceof ApiFailure && error.code === 'duplicate_label') {
+            const { partId, bagId } = error.details;
+            settle({
+              state: 'already',
+              partId: typeof partId === 'string' ? partId : null,
+              bagId: typeof bagId === 'string' ? bagId : null,
+            });
+          }
           else settle({ state: 'failed', message: errorMessage(error) });
         });
       return { state: 'adding' };
@@ -398,13 +434,13 @@ export function BoardScreen() {
             type="button"
             className="stage-progress"
             aria-expanded={checklistOpen}
-            aria-label={`${foundCount} of ${lines.length} parts in stock`}
-            title="Parts in stock"
+            aria-label={`${placedCount} of ${lines.length} parts on the board`}
+            title="Parts on the board"
             onClick={() => setChecklistOpen((open) => !open)}
           >
             <Icon name="list" size={16} />
-            <strong>{foundCount}</strong>
-            <span>of {lines.length}</span>
+            <strong>{placedCount}</strong>
+            <span>of {lines.length} on</span>
           </button>
         ) : null}
 
@@ -440,7 +476,15 @@ export function BoardScreen() {
         />
       ) : null}
 
-      {scan ? <ScanBanner result={scan} onClose={() => setScan(null)} /> : null}
+      {scan ? (
+        <ScanBanner
+          result={scan}
+          onClose={() => setScan(null)}
+          placed={scannedLine ? scannedLine.placed : null}
+          onTogglePlaced={scannedLine ? () => void togglePlaced(scannedLine) : undefined}
+          partId={scannedPartId}
+        />
+      ) : null}
 
       {cameraOpen ? <CameraScanner onScan={runScan} onClose={() => setCameraOpen(false)} /> : null}
 
@@ -451,6 +495,7 @@ export function BoardScreen() {
             setChecklistOpen(false);
             search(refs.join(','));
           }}
+          onTogglePlaced={(line) => void togglePlaced(line)}
           onClose={() => setChecklistOpen(false)}
         />
       ) : null}

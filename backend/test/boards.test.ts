@@ -321,6 +321,32 @@ describe('uploading a BOM', () => {
     expect(await counts()).toMatchObject({ stockedCount: 0 });
   });
 
+  it('ticks a part off as on the board for everyone, without touching its stock', async () => {
+    const client = await signIn();
+    const id = await uploaded(client);
+    await client.post(`/api/boards/${id}/bom`, { text: BOM });
+    const { partId } = await addBag(client, 100, { partNumber: '311-10.0KHRCT-ND', description: 'RES 10K OHM 1% 1/10W 0603' });
+
+    const ticked = await client.post(`/api/boards/${id}/placed`, { refs: ['R1', 'R2'], placed: true });
+    expect(ticked.body.board).toMatchObject({ lineCount: 2, stockedCount: 1, placedCount: 1 });
+
+    const other = await signIn('eason');
+    const { placements } = (await other.get(`/api/boards/${id}`)).body;
+    expect(placements.filter((spot: { placed: boolean }) => spot.placed).map((spot: { ref: string }) => spot.ref)).toEqual(['R1', 'R2']);
+    expect((await client.get('/api/inventory')).body.parts.find((part: { id: string }) => part.id === partId).total).toBe(100);
+
+    const unticked = await client.post(`/api/boards/${id}/placed`, { refs: ['R1'], placed: false });
+    expect(unticked.body.board.placedCount).toBe(0);
+  });
+
+  it('never ticks a spot the BOM leaves empty', async () => {
+    const client = await signIn();
+    const id = await uploaded(client);
+    await client.post(`/api/boards/${id}/bom`, { text: 'Reference,DNP,DigiKey Part Number\nR1,DNP,311-10.0KHRCT-ND' });
+    expect((await client.post(`/api/boards/${id}/placed`, { refs: ['R1'], placed: true })).status).toBe(404);
+    expect((await client.post(`/api/boards/${id}/placed`, { refs: ['NOPE1'], placed: true })).status).toBe(404);
+  });
+
   it('names a part scanned in later from its BOM line, since bag labels carry no description', async () => {
     const client = await signIn();
     const id = await uploaded(client);

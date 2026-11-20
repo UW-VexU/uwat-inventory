@@ -1744,6 +1744,13 @@ kbd {
   color: var(--danger);
 }
 
+.scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .stage-camera {
   display: grid;
   flex: none;
@@ -1808,18 +1815,44 @@ kbd {
   font-size: 16px;
 }
 
-.checklist ul {
+.checklist header p {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.checklist-body {
   flex: 1;
   overflow-y: auto;
 }
 
+.checklist h3 {
+  padding: 12px 12px 4px;
+  color: var(--gold);
+  font: italic 700 11.5px var(--display);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.checklist li {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.checklist li input {
+  justify-self: center;
+  width: 17px;
+  height: 17px;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+
 .checklist li button {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
   width: 100%;
-  padding: 7px 12px;
+  padding: 7px 12px 7px 0;
   border: 0;
-  border-bottom: 1px solid var(--line);
   background: none;
   color: var(--white);
   font-size: 13.5px;
@@ -1828,11 +1861,10 @@ kbd {
 }
 
 .checklist li button:hover {
-  background: var(--ink-control);
+  color: var(--gold);
 }
 
 .checklist li small {
-  grid-column: 2;
   color: var(--faint);
 }
 

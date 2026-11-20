@@ -2,10 +2,15 @@ export class ApiFailure extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Anything else the server said, like which bag a repeat scan matched. */
+    readonly details: Record<string, unknown> = {},
   ) {
     super(message);
   }
 }
+
+/** Identifies one change sent to the server, so a retry after a dropped connection isn't applied twice. */
+export const newRequestId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
 let server = '';
 let token: string | null = null;
@@ -40,9 +45,11 @@ async function send(path: string, method: string, body?: unknown): Promise<Respo
 
 export async function api<T>(path: string, { method = 'GET', body }: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await send(path, method, body);
-  const data = (await response.json().catch(() => null)) as (T & { error?: { message: string } }) | null;
+  const data = (await response.json().catch(() => null)) as
+    | (T & { error?: { message: string } & Record<string, unknown> })
+    | null;
   if (response.ok) return data as T;
-  throw new ApiFailure(response.status, data?.error?.message ?? 'Something went wrong on the server.');
+  throw new ApiFailure(response.status, data?.error?.message ?? 'Something went wrong on the server.', data?.error ?? {});
 }
 
 export async function apiText(path: string): Promise<string> {
