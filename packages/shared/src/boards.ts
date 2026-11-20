@@ -399,11 +399,16 @@ export type ScanVerdict =
   | { kind: 'leave-empty'; line: BoardLine }
   | { kind: 'not-here' };
 
+/** Which board line a spot belongs to: one per distinct part. */
+function lineKey(spot: PlacementView): string {
+  return partKey(spot.bomMfrNumber) || partKey(spot.bomPartNumber) || partKey(spot.part?.partNumber) || spot.ref;
+}
+
 function toLine(spots: readonly PlacementView[]): BoardLine | null {
   const first = spots[0];
   if (!first) return null;
   return {
-    key: partKey(first.bomMfrNumber) || partKey(first.bomPartNumber) || partKey(first.part?.partNumber) || first.ref,
+    key: lineKey(first),
     value: first.value,
     description: first.bomDescription ?? first.part?.description ?? null,
     partNumber: first.bomPartNumber ?? first.part?.partNumber ?? null,
@@ -446,8 +451,37 @@ export function looksLikePartNumber(text: string): boolean {
 }
 
 /**
+ * Spots typed by name, like U2, or a label's whole CUST REF, like "R3, R5, R9 to R14": whatever goes there.
+ * Every spot named has to be on this board and hold the same part, so it never has to guess.
+ */
+function judgeTypedSpots(text: string, spots: readonly PlacementView[]): ScanJudgement | null {
+  const refs = parseRefList(text);
+  if (!refs) return null;
+  const named = refs.map((ref) => spots.find((spot) => spot.ref === ref));
+  if (named.some((spot) => !spot || !(spot.bomPartNumber || spot.bomMfrNumber || spot.part))) return null;
+  const found = named as PlacementView[];
+  const [first] = found;
+  if (!first || new Set(found.map(lineKey)).size !== 1) return null;
+
+  const bag: ScannedBag = { partNumber: first.bomPartNumber ?? first.part?.partNumber ?? null, mfrPartNumber: first.bomMfrNumber };
+  // Spots the BOM leaves empty say so, even when the same part is fitted somewhere else on the board.
+  const empty = found.every((spot) => spot.dnp) ? toLine(found) : null;
+  const verdict: ScanVerdict = empty ? { kind: 'leave-empty', line: empty } : checkBag(bag, spots);
+  if (verdict.kind === 'not-here') return null;
+  const { line } = verdict;
+  return {
+    code: line.partNumber ?? line.mfrPartNumber ?? text.trim(),
+    quantity: null,
+    bag,
+    verdict,
+    typed: { partNumber: line.partNumber, mfrPartNumber: line.mfrPartNumber },
+  };
+}
+
+/**
  * Takes whatever a scanner or keyboard produced. Returns null if it wasn't a part code at all.
- * With `typed`, anything shaped like a part number counts, so it can be added even when no board uses it.
+ * With `typed`, a spot's name like U2 finds its part, and anything shaped like a part number counts,
+ * so it can be added even when no board uses it.
  */
 export function judgeScan(raw: string, spots: readonly PlacementView[], { typed: typing = false } = {}): ScanJudgement | null {
   const read = classifyScan(raw);
@@ -456,6 +490,10 @@ export function judgeScan(raw: string, spots: readonly PlacementView[], { typed:
   const verdict = checkBag(bag, spots);
   if (read.kind === 'bag') {
     return { code: bag.partNumber ?? bag.mfrPartNumber ?? text, quantity: read.label.quantity, bag, verdict, typed: null };
+  }
+  if (typing) {
+    const bySpot = judgeTypedSpots(text, spots);
+    if (bySpot) return bySpot;
   }
 
   const digikey = /-ND$/i.test(text);
@@ -475,7 +513,7 @@ export function boardLines(spots: readonly PlacementView[]): BoardLine[] {
   const groups = new Map<string, PlacementView[]>();
   for (const spot of spots) {
     if (spot.dnp || !(spot.bomPartNumber || spot.bomMfrNumber || spot.part)) continue;
-    const key = partKey(spot.bomMfrNumber) || partKey(spot.bomPartNumber) || partKey(spot.part?.partNumber) || spot.ref;
+    const key = lineKey(spot);
     groups.set(key, [...(groups.get(key) ?? []), spot]);
   }
   return [...groups.values()]

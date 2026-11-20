@@ -413,9 +413,9 @@ export default function CheckScreen() {
         returnKeyType="search"
         autoCapitalize="characters"
         autoCorrect={false}
-        placeholder="Or type a part number"
+        placeholder="Or type a part number, or a spot like U2"
         placeholderTextColor={colours.faint}
-        accessibilityLabel="Type a part number"
+        accessibilityLabel="Type a part number or spot"
       />
 
       <VerdictCard

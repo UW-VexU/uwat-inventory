@@ -456,6 +456,25 @@ describe('checkBag', () => {
     expect(judgeScan('op amp', spots, { typed: true })).toBeNull();
   });
 
+  it("finds a spot's part from its name, or a label's whole CUST REF", () => {
+    const byName = judgeScan('r3', spots, { typed: true });
+    expect(byName).toMatchObject({
+      code: '13-RC0603FR-1310KLCT-ND',
+      verdict: { kind: 'fits', line: { refs: ['R3', 'R10'] } },
+      typed: { partNumber: '13-RC0603FR-1310KLCT-ND', mfrPartNumber: 'RC0603FR-1310KL' },
+    });
+    expect(judgeScan('R3, R10', spots, { typed: true })?.verdict.kind).toBe('fits');
+    expect(judgeScan('R2', spots, { typed: true })).toMatchObject({ verdict: { kind: 'leave-empty', line: { refs: ['R2'] } } });
+  });
+
+  it("won't guess when spots hold different parts, are missing, or have no part", () => {
+    expect(judgeScan('R3, D2', spots, { typed: true })).toBeNull();
+    expect(judgeScan('R3, R99', spots, { typed: true })).toBeNull();
+    expect(judgeScan('TP1', spots, { typed: true })).toBeNull();
+    // Only the phone's part-number box reads spots. Elsewhere R3 is a search.
+    expect(judgeScan('R3', spots)).toBeNull();
+  });
+
   it('checks a linked part when the spot has no BOM data', () => {
     const linked = line('R1', {
       part: { id: 'p', partNumber: 'X-ND', description: 'RES 1K', total: 5, boxes: [] },
