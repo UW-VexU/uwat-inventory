@@ -15,13 +15,52 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../src/api';
+import { Inventory } from '../src/Inventory';
 import { useSession } from '../src/session';
 import { colours, fonts } from '../src/theme';
 
 export default function Home() {
   const { ready, signedIn } = useSession();
   if (!ready) return <View style={styles.screen} />;
-  return signedIn ? <Boards /> : <SignIn />;
+  return signedIn ? <SignedIn /> : <SignIn />;
+}
+
+type Mode = 'boards' | 'inventory';
+
+const MODES: ReadonlyArray<{ mode: Mode; label: string }> = [
+  { mode: 'boards', label: 'Boards' },
+  { mode: 'inventory', label: 'Inventory' },
+];
+
+/** Two jobs: building a board, and putting bags away in boxes. */
+function SignedIn() {
+  const { signOut } = useSession();
+  const [mode, setMode] = useState<Mode>('boards');
+
+  return (
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+      <View style={styles.bar}>
+        <Image source={require('../assets/logo-white.png')} style={styles.barLogo} resizeMode="contain" accessibilityLabel="UWAT" />
+        <Pressable onPress={() => void signOut()} accessibilityRole="button" hitSlop={12}>
+          <Text style={styles.link}>Sign out</Text>
+        </Pressable>
+      </View>
+      <View style={styles.modes} accessibilityRole="tablist">
+        {MODES.map((option) => (
+          <Pressable
+            key={option.mode}
+            style={[styles.mode, mode === option.mode && styles.modeOn]}
+            onPress={() => setMode(option.mode)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: mode === option.mode }}
+          >
+            <Text style={[styles.modeText, mode === option.mode && styles.modeTextOn]}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {mode === 'boards' ? <Boards /> : <Inventory />}
+    </SafeAreaView>
+  );
 }
 
 function SignIn() {
@@ -85,7 +124,6 @@ function SignIn() {
 }
 
 function Boards() {
-  const { signOut } = useSession();
   const [boards, setBoards] = useState<BoardSummary[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -106,13 +144,7 @@ function Boards() {
   );
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.bar}>
-        <Image source={require('../assets/logo-white.png')} style={styles.barLogo} resizeMode="contain" accessibilityLabel="UWAT" />
-        <Pressable onPress={() => void signOut()} accessibilityRole="button" hitSlop={12}>
-          <Text style={styles.link}>Sign out</Text>
-        </Pressable>
-      </View>
+    <View style={styles.screen}>
       <Text style={styles.pick}>Which board are you building?</Text>
 
       {problem ? (
@@ -141,7 +173,7 @@ function Boards() {
           </Pressable>
         )}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -169,6 +201,11 @@ const styles = StyleSheet.create({
   bar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 },
   barLogo: { width: 110, height: 26 },
   link: { color: colours.gold, fontFamily: fonts.bold, fontSize: 15 },
+  modes: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: colours.lineStrong },
+  mode: { flex: 1, alignItems: 'center', paddingVertical: 10 },
+  modeOn: { backgroundColor: colours.gold },
+  modeText: { color: colours.muted, fontFamily: fonts.bold, fontSize: 15 },
+  modeTextOn: { color: colours.ink },
   pick: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, color: colours.white, fontFamily: fonts.display, fontSize: 24 },
   padded: { paddingHorizontal: 16 },
   note: { color: colours.muted, fontFamily: fonts.body, fontSize: 14 },

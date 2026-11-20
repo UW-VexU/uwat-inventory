@@ -1,5 +1,6 @@
 import { formatRefs, type BoardUse, type ScanVerdict, type StockNote } from '@uwat/shared';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { BagHome } from './BagHome';
 import { colours, fonts } from './theme';
 
 export type ScanOutcome =
@@ -45,6 +46,7 @@ function Card({
       <Text style={[styles.title, { color: tone }]}>{title}</Text>
       {children}
       {stock ? <StockLine note={stock} /> : null}
+      {bag?.partId && bag.bagId ? <BagHome partId={bag.partId} bagId={bag.bagId} onChanged={onStockChanged} /> : null}
       {actions ? <View style={styles.actions}>{actions}</View> : null}
     </View>
   );
